@@ -54,7 +54,7 @@ export type Lesson = {
   order: number;
   type: "video" | "text" | "quiz" | "download";
   video?: {
-    provider?: "gcs" | "vdocipher";
+    provider?: "vdocipher";
     vdoCipherVideoId?: string;
     encodingStatus?: "pending" | "processing" | "ready" | "failed";
     durationSeconds?: number;

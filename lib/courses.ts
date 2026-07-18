@@ -49,7 +49,6 @@ export async function fetchCourseBySlug(slug: string, withAuth = false) {
 export type LessonFetchSuccess = {
   course: { _id: string; title: string; slug: string };
   lesson: Lesson;
-  videoUrl: string | null;
   playback: { otp: string; playbackInfo: string } | null;
   quiz: {
     _id: string;

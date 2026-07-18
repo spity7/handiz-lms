@@ -39,7 +39,6 @@ export default function CoursePlayer({
   isStaff = false,
 }: Props) {
   const router = useRouter();
-  const videoRef = useRef<HTMLVideoElement>(null);
   const [lessonData, setLessonData] = useState<LessonFetchResult>(null);
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -76,22 +75,7 @@ export default function CoursePlayer({
     ) {
       setEnrollmentProgress(data.enrollment.progressPercent);
     }
-
-    if (
-      data &&
-      !isLessonError(data) &&
-      data.videoUrl &&
-      data.lesson &&
-      initialProgress[data.lesson._id]
-    ) {
-      const pos = initialProgress[data.lesson._id].lastPosition;
-      setTimeout(() => {
-        if (videoRef.current && pos > 0) {
-          videoRef.current.currentTime = pos;
-        }
-      }, 300);
-    }
-  }, [courseSlug, lessonSlug, initialProgress]);
+  }, [courseSlug, lessonSlug]);
 
   useEffect(() => {
     loadLesson();
@@ -101,10 +85,9 @@ export default function CoursePlayer({
     async (markComplete = false) => {
       if (!lessonData || isLessonError(lessonData) || !lessonData.lesson)
         return null;
-      const video = videoRef.current;
       const payload = {
-        watchedSeconds: video ? Math.floor(video.currentTime) : 0,
-        lastPosition: video ? Math.floor(video.currentTime) : 0,
+        watchedSeconds: 0,
+        lastPosition: 0,
         markComplete,
       };
       const result = await updateLessonProgress(lessonData.lesson._id, payload);
@@ -121,11 +104,6 @@ export default function CoursePlayer({
     },
     [lessonData],
   );
-
-  const scheduleSave = useCallback(() => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => saveProgress(), 30000);
-  }, [saveProgress]);
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -220,7 +198,7 @@ export default function CoursePlayer({
     );
   }
 
-  const { course, lesson, videoUrl, playback, quiz } = lessonData;
+  const { course, lesson, playback, quiz } = lessonData;
   const isNonVideoLesson = lesson.type !== "video";
   const lessonCompleted = progressMap[lesson._id];
   const canProceedFromQuiz =
@@ -328,20 +306,7 @@ export default function CoursePlayer({
               </>
             )}
 
-            {lesson.type === "video" && !playback && videoUrl && (
-              <div className="relative mb-6 aspect-video overflow-hidden rounded-2xl bg-slate-900">
-                <video
-                  ref={videoRef}
-                  src={videoUrl}
-                  controls
-                  className="h-full w-full"
-                  onTimeUpdate={scheduleSave}
-                  onEnded={() => saveProgress(true)}
-                />
-              </div>
-            )}
-
-            {lesson.type === "video" && !playback && !videoUrl && (
+            {lesson.type === "video" && !playback && (
               <div
                 className={`mb-6 rounded-xl p-4 text-sm ${
                   lesson.video?.encodingStatus &&
