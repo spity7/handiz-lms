@@ -1,10 +1,14 @@
 import CourseDetailClient from "@/components/courses/CourseDetailClient";
 import { fetchCourseBySlug } from "@/lib/courses";
+import { fetchCourseBySlugServer } from "@/lib/coursesServer";
 import { getCourseSalePrice } from "@/lib/coursePricing";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
-type Props = { params: Promise<{ slug: string }> };
+type Props = {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ enrolled?: string; payment?: string }>;
+};
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
@@ -22,9 +26,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function CourseDetailPage({ params }: Props) {
+export default async function CourseDetailPage({
+  params,
+  searchParams,
+}: Props) {
   const { slug } = await params;
-  const data = await fetchCourseBySlug(slug, true);
+  const query = await searchParams;
+  const data = await fetchCourseBySlugServer(slug);
 
   if (!data) notFound();
 
@@ -56,6 +64,9 @@ export default async function CourseDetailPage({ params }: Props) {
         curriculum={data.curriculum}
         enrollment={data.enrollment}
         isEnrolled={data.isEnrolled}
+        isStaff={data.isStaff}
+        enrolledQuery={query.enrolled}
+        paymentQuery={query.payment}
       />
     </>
   );

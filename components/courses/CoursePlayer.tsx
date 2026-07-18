@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Download, Shield } from "lucide-react";
+import { ArrowLeft, ArrowRight, Download, List, Shield, X } from "lucide-react";
 import type { CourseModule } from "@/types/course";
 import CurriculumSidebar from "@/components/courses/CurriculumSidebar";
 import VdoCipherPlayer from "@/components/courses/VdoCipherPlayer";
@@ -22,6 +22,7 @@ type Props = {
   lessonSlug: string;
   curriculum: CourseModule[];
   initialProgress: Record<string, { completed: boolean; lastPosition: number }>;
+  isStaff?: boolean;
 };
 
 function isLessonError(
@@ -35,11 +36,14 @@ export default function CoursePlayer({
   lessonSlug,
   curriculum,
   initialProgress,
+  isStaff = false,
 }: Props) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [lessonData, setLessonData] = useState<LessonFetchResult>(null);
   const [loading, setLoading] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [quizError, setQuizError] = useState("");
   const [progressMap, setProgressMap] = useState<Record<string, boolean>>(
     () => {
       const map: Record<string, boolean> = {};
@@ -144,6 +148,7 @@ export default function CoursePlayer({
 
   const handleQuizSubmit = async () => {
     if (!lessonData || isLessonError(lessonData) || !lessonData.quiz) return;
+    setQuizError("");
     const answers = Object.entries(quizAnswers).map(([qi, selectedIndex]) => ({
       questionIndex: Number(qi),
       selectedIndex,
@@ -158,7 +163,7 @@ export default function CoursePlayer({
         }
       }
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Quiz failed");
+      setQuizError(e instanceof Error ? e.message : "Quiz submission failed");
     }
   };
 
@@ -174,7 +179,7 @@ export default function CoursePlayer({
       } else if (lessonData && !isLessonError(lessonData)) {
         await saveProgress(false);
       }
-      router.push(getLmsUrl(`/courses/${courseSlug}/learn/${targetSlug}`));
+      router.push(`/courses/${courseSlug}/learn/${targetSlug}`);
     } finally {
       setNavigating(false);
     }
@@ -220,11 +225,31 @@ export default function CoursePlayer({
   const lessonCompleted = progressMap[lesson._id];
   const canProceedFromQuiz =
     lesson.type !== "quiz" || lessonCompleted || quizResult?.passed;
+  const canProceedFromVideo = lesson.type !== "video" || lessonCompleted;
+  const canProceed = canProceedFromQuiz && canProceedFromVideo;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      {isStaff && (
+        <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm text-indigo-800">
+          Staff preview mode
+        </div>
+      )}
+
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-lg font-semibold text-slate-900">{course.title}</h1>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 lg:hidden"
+            onClick={() => setSidebarOpen(true)}
+          >
+            <List className="h-4 w-4" />
+            Lessons
+          </button>
+          <h1 className="text-lg font-semibold text-slate-900">
+            {course.title}
+          </h1>
+        </div>
         <div className="flex items-center gap-3 sm:min-w-[200px]">
           <ProgressBar value={enrollmentProgress} className="flex-1" />
           <span className="text-sm font-medium text-indigo-600">
@@ -232,6 +257,39 @@ export default function CoursePlayer({
           </span>
         </div>
       </div>
+
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-900/40"
+            aria-label="Close lesson menu"
+            onClick={() => setSidebarOpen(false)}
+          />
+          <div className="absolute inset-y-0 left-0 w-[min(100%,20rem)] overflow-y-auto bg-white p-4 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-900">
+                Curriculum
+              </h2>
+              <button
+                type="button"
+                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+                onClick={() => setSidebarOpen(false)}
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <CurriculumSidebar
+              courseSlug={courseSlug}
+              curriculum={curriculum}
+              currentLessonSlug={lessonSlug}
+              progressMap={progressMap}
+              onNavigate={() => setSidebarOpen(false)}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-8 lg:grid-cols-12">
         <div className="hidden lg:col-span-3 lg:block">
@@ -347,7 +405,12 @@ export default function CoursePlayer({
                     {quizResult.passed ? "Passed!" : "Try again"}
                   </div>
                 ) : (
-                  <Button onClick={handleQuizSubmit}>Submit Quiz</Button>
+                  <>
+                    {quizError && (
+                      <p className="text-sm text-red-600">{quizError}</p>
+                    )}
+                    <Button onClick={handleQuizSubmit}>Submit Quiz</Button>
+                  </>
                 )}
               </div>
             )}
@@ -426,7 +489,7 @@ export default function CoursePlayer({
               )}
               {next ? (
                 <Button
-                  disabled={navigating || !canProceedFromQuiz}
+                  disabled={navigating || !canProceed}
                   onClick={() =>
                     handleNavigate(next.slug, {
                       markComplete: isNonVideoLesson,
@@ -439,7 +502,7 @@ export default function CoursePlayer({
               ) : (
                 <Button
                   variant="success"
-                  disabled={navigating || !canProceedFromQuiz}
+                  disabled={navigating || !canProceed}
                   onClick={async () => {
                     setNavigating(true);
                     await saveProgress(true);
@@ -450,6 +513,13 @@ export default function CoursePlayer({
                 </Button>
               )}
             </div>
+            {!canProceed && (
+              <p className="mt-3 text-sm text-slate-500">
+                {!canProceedFromVideo
+                  ? "Watch at least 90% of the video before continuing."
+                  : "Pass the quiz before continuing."}
+              </p>
+            )}
           </Card>
         </div>
       </div>

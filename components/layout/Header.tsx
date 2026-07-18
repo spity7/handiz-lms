@@ -184,10 +184,25 @@ export default function Header() {
               <a
                 href={signInHref}
                 className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-indigo-600 hover:bg-indigo-50"
+                onClick={() => setMenuOpen(false)}
               >
                 <LogIn className="h-4 w-4" />
                 Sign In
               </a>
+            )}
+            {isAuthenticated && (
+              <button
+                type="button"
+                disabled={loggingOut}
+                onClick={() => {
+                  setMenuOpen(false);
+                  handleLogout();
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                <LogOut className="h-4 w-4" />
+                {loggingOut ? "Logging out…" : "Logout"}
+              </button>
             )}
           </nav>
         </div>

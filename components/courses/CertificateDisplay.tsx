@@ -1,20 +1,42 @@
 "use client";
 
-import { Award, Printer } from "lucide-react";
+import { Award, Download, Printer } from "lucide-react";
 import type { Certificate } from "@/types/course";
 import { Button } from "@/components/ui";
 import { getLmsUrl } from "@/lib/urls";
+
+function getStudentName(
+  certificate: Certificate & {
+    userId?: {
+      firstname?: string;
+      lastname?: string;
+      username?: string;
+    };
+  },
+) {
+  const user = certificate.userId;
+  if (!user) return null;
+  const fullName = [user.firstname, user.lastname].filter(Boolean).join(" ");
+  return fullName || user.username || null;
+}
 
 export default function CertificateDisplay({
   certificate,
 }: {
   certificate: Certificate & {
     courseId?: { title?: string; slug?: string };
+    userId?: {
+      firstname?: string;
+      lastname?: string;
+      username?: string;
+    };
   };
 }) {
   const handlePrint = () => {
     window.print();
   };
+
+  const studentName = getStudentName(certificate);
 
   return (
     <div className="mb-8">
@@ -30,7 +52,12 @@ export default function CertificateDisplay({
         <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-400">
           Certificate of Completion
         </p>
-        <h2 className="mb-4 text-2xl font-bold text-slate-900 md:text-3xl">
+        {studentName && (
+          <p className="mb-2 text-2xl font-bold text-slate-900 md:text-3xl">
+            {studentName}
+          </p>
+        )}
+        <h2 className="mb-4 text-xl font-semibold text-slate-800 md:text-2xl">
           {certificate.courseId?.title || "Course"}
         </h2>
         <p className="mb-1 text-slate-500">
@@ -48,7 +75,19 @@ export default function CertificateDisplay({
         </div>
       </div>
 
-      <div className="certificate-actions print-hide mt-4 flex gap-2">
+      <div className="certificate-actions print-hide mt-4 flex flex-wrap gap-2">
+        {certificate.pdfUrl && (
+          <a
+            href={certificate.pdfUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <Button variant="outline" size="sm">
+              <Download className="h-4 w-4" />
+              Download PDF
+            </Button>
+          </a>
+        )}
         <Button variant="outline" size="sm" onClick={handlePrint}>
           <Printer className="h-4 w-4" />
           Print Certificate

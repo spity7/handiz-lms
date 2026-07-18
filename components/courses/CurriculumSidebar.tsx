@@ -7,14 +7,16 @@ export default function CurriculumSidebar({
   curriculum,
   currentLessonSlug,
   progressMap,
+  onNavigate,
 }: {
   courseSlug: string;
   curriculum: CourseModule[];
   currentLessonSlug: string;
   progressMap: Record<string, boolean>;
+  onNavigate?: () => void;
 }) {
   return (
-    <aside className="sticky top-24">
+    <aside className="lg:sticky lg:top-24">
       <Link
         href="/my-courses"
         className="mb-4 inline-flex items-center text-sm text-slate-500 transition-colors hover:text-indigo-600"
@@ -51,6 +53,7 @@ export default function CurriculumSidebar({
                     <li key={lesson._id}>
                       <Link
                         href={`/courses/${courseSlug}/learn/${lesson.slug}`}
+                        onClick={onNavigate}
                         className={`flex items-center gap-2 rounded-lg px-2 py-2 text-sm transition-colors ${
                           isActive
                             ? "bg-indigo-50 font-medium text-indigo-700"

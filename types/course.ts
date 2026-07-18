@@ -64,6 +64,7 @@ export type Lesson = {
   isPreview?: boolean;
   isPublished?: boolean;
   locked?: boolean;
+  sequentiallyLocked?: boolean;
   contentBlocks?: { type: string; content: string }[];
   quiz?: {
     _id: string;
@@ -116,5 +117,12 @@ export type Certificate = {
   _id: string;
   certificateNumber: string;
   issuedAt: string;
+  pdfUrl?: string;
   courseId?: { title: string; slug: string };
+  userId?: {
+    firstname?: string;
+    lastname?: string;
+    username?: string;
+    email?: string;
+  };
 };

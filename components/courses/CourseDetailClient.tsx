@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { ChevronDown, Clock, Eye, Lock, Play, BookOpen } from "lucide-react";
-import type { Course, CourseModule, Enrollment } from "@/types/course";
+import type { Course, CourseModule, Enrollment, Lesson } from "@/types/course";
 import {
   createCheckout,
   enrollFree,
+  fetchCourseBySlug,
   filterVisibleCurriculum,
   formatDuration,
   getFirstLesson,
@@ -25,17 +27,27 @@ import { getLmsUrl } from "@/lib/urls";
 export default function CourseDetailClient({
   course,
   curriculum,
-  enrollment,
-  isEnrolled,
+  enrollment: initialEnrollment,
+  isEnrolled: initialIsEnrolled,
+  isStaff = false,
+  enrolledQuery,
+  paymentQuery,
 }: {
   course: Course;
   curriculum: CourseModule[];
   enrollment: Enrollment | null;
   isEnrolled: boolean;
+  isStaff?: boolean;
+  enrolledQuery?: string;
+  paymentQuery?: string;
 }) {
+  const router = useRouter();
   const { isAuthenticated } = useAuthUser();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [enrollment, setEnrollment] = useState(initialEnrollment);
+  const [isEnrolled, setIsEnrolled] = useState(initialIsEnrolled);
   const [openModules, setOpenModules] = useState<Record<string, boolean>>(
     () => {
       const initial: Record<string, boolean> = {};
@@ -47,9 +59,46 @@ export default function CourseDetailClient({
   );
 
   const firstLesson = getFirstLesson(curriculum);
-  const visibleCurriculum = filterVisibleCurriculum(curriculum);
+  const visibleCurriculum = isStaff
+    ? curriculum
+    : filterVisibleCurriculum(curriculum);
   const priceDisplay = getPublicPriceDisplay(course.pricing);
   const salePrice = getCourseSalePrice(course.pricing);
+
+  useEffect(() => {
+    if (paymentQuery === "failed") {
+      setError("Payment was cancelled or failed. Please try again.");
+    }
+  }, [paymentQuery]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    let cancelled = false;
+
+    const refreshEnrollment = async () => {
+      const data = await fetchCourseBySlug(course.slug, true);
+      if (!data || cancelled) return;
+
+      setIsEnrolled(data.isEnrolled);
+      setEnrollment(data.enrollment);
+
+      if (enrolledQuery === "true" && data.isEnrolled) {
+        setSuccess("You are enrolled! Redirecting to your first lesson…");
+        const targetLesson = getFirstLesson(data.curriculum);
+        const target = targetLesson
+          ? `/courses/${course.slug}/learn/${targetLesson.slug}`
+          : `/courses/${course.slug}`;
+        router.replace(getLmsUrl(target));
+      }
+    };
+
+    refreshEnrollment();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [course.slug, enrolledQuery, isAuthenticated, router]);
 
   const handleEnroll = async () => {
     if (!isAuthenticated) {
@@ -59,12 +108,14 @@ export default function CourseDetailClient({
 
     setLoading(true);
     setError("");
+    setSuccess("");
     try {
       if (priceDisplay.isFree) {
         await enrollFree(course._id);
-        window.location.href = firstLesson
-          ? getLmsUrl(`/courses/${course.slug}/learn/${firstLesson.slug}`)
-          : getLmsUrl(`/courses/${course.slug}`);
+        const target = firstLesson
+          ? `/courses/${course.slug}/learn/${firstLesson.slug}`
+          : `/courses/${course.slug}`;
+        window.location.href = getLmsUrl(target);
       } else {
         const { url } = await createCheckout(course._id);
         window.location.href = url;
@@ -86,8 +137,21 @@ export default function CourseDetailClient({
     setOpenModules((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
+  const canOpenLesson = (lesson: Lesson) => {
+    if (isStaff) return true;
+    if (lesson.isPreview) return true;
+    if (isEnrolled && !lesson.locked) return true;
+    return false;
+  };
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      {isStaff && (
+        <div className="mb-6 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
+          Staff preview — unpublished content may be visible.
+        </div>
+      )}
+
       <div className="grid gap-8 lg:grid-cols-3 lg:gap-12">
         <div className="lg:col-span-2">
           {course.thumbnailUrl && (
@@ -209,6 +273,9 @@ export default function CourseDetailClient({
                       : `Buy for ${formatUsd(salePrice)}`}
                 </Button>
 
+                {success && (
+                  <p className="text-sm text-emerald-600">{success}</p>
+                )}
                 {error && <p className="text-sm text-red-600">{error}</p>}
               </div>
             )}
@@ -247,20 +314,25 @@ export default function CourseDetailClient({
                 {isOpen && (
                   <ul className="border-t border-slate-100">
                     {(mod.lessons || []).map((lesson) => {
-                      const canOpen = lesson.isPreview || isEnrolled;
+                      const canOpen = canOpenLesson(lesson);
                       return (
                         <li
                           key={lesson._id}
                           className="flex items-center justify-between gap-4 border-b border-slate-50 px-5 py-3 last:border-0"
                         >
                           <span className="flex items-center gap-2 text-sm text-slate-700">
-                            {lesson.locked && !lesson.isPreview && (
+                            {lesson.locked && !lesson.isPreview && !isStaff && (
                               <Lock className="h-4 w-4 text-slate-400" />
                             )}
                             {lesson.isPreview && (
                               <Eye className="h-4 w-4 text-indigo-500" />
                             )}
                             {lesson.title}
+                            {lesson.sequentiallyLocked && (
+                              <span className="text-xs text-slate-400">
+                                (complete previous)
+                              </span>
+                            )}
                           </span>
                           {canOpen ? (
                             <Link
@@ -273,7 +345,9 @@ export default function CourseDetailClient({
                               </Button>
                             </Link>
                           ) : (
-                            <Badge variant="muted">Locked</Badge>
+                            <Badge variant="muted">
+                              {lesson.sequentiallyLocked ? "Locked" : "Locked"}
+                            </Badge>
                           )}
                         </li>
                       );

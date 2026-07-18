@@ -17,10 +17,17 @@ export function getMainSiteUrl(path: string) {
 }
 
 export function getSignInUrl(returnPath: string) {
+  if (!DASHBOARD_URL) {
+    console.error(
+      "NEXT_PUBLIC_DASHBOARD_URL is not set; cannot build sign-in URL.",
+    );
+    return getLmsUrl(returnPath);
+  }
+
   const fullReturn = returnPath.startsWith("http")
     ? returnPath
     : getLmsUrl(returnPath);
-  return `${DASHBOARD_URL}/auth/sign-in?redirectTo=${encodeURIComponent(fullReturn)}`;
+  return `${DASHBOARD_URL.replace(/\/$/, "")}/auth/sign-in?redirectTo=${encodeURIComponent(fullReturn)}`;
 }
 
 export function getDashboardUrl(path: string) {
