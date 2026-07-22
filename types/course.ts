@@ -31,11 +31,14 @@ export type Course = {
   excerpt?: string;
   description?: string;
   thumbnailUrl?: string;
+  heroImageDesktopUrl?: string;
+  heroImageMobileUrl?: string;
   status: string;
   pricing: CoursePricing;
   instructorId?: CourseInstructor;
   level?: string;
   tags?: string[];
+  heroHighlights?: string[];
   order?: number;
   lessonCount?: number;
   totalDurationMinutes?: number;
