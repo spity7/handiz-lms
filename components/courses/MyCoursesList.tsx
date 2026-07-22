@@ -33,7 +33,8 @@ export default function MyCoursesList({
           typeof enrollment.courseId === "object" ? enrollment.courseId : null;
         if (!course) return null;
 
-        const continueSlug = enrollment.lastLessonId?.slug;
+        const continueSlug =
+          enrollment.continueLessonSlug || enrollment.lastLessonId?.slug;
         const isCompleted = enrollment.status === "completed";
 
         return (

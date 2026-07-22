@@ -1,16 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import {
-  BookOpen,
-  ChevronDown,
-  GraduationCap,
-  LogIn,
-  LogOut,
-  Menu,
-  X,
-} from "lucide-react";
+import { BookOpen, ChevronDown, LogIn, LogOut, Menu, X } from "lucide-react";
 import { getUserInitials, logoutUser } from "@/lib/auth";
 import { getMainSiteUrl, getSignInUrl } from "@/lib/urls";
 import { useAuthUser } from "@/hooks/useAuthUser";
@@ -62,11 +55,16 @@ export default function Header() {
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
         <div className="flex items-center gap-8">
           <Link href="/my-courses" className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/30">
-              <GraduationCap className="h-5 w-5" />
-            </span>
-            <span className="hidden font-semibold text-slate-900 sm:block">
-              Handiz <span className="text-indigo-600">Learn</span>
+            <Image
+              src="/images/logo/Logo-black-black.png"
+              alt="Handiz"
+              width={194}
+              height={44}
+              priority
+              className="h-10 w-auto"
+            />
+            <span className="hidden font-semibold text-indigo-600 sm:block">
+              Learn
             </span>
           </Link>
 

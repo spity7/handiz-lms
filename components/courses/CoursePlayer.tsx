@@ -22,6 +22,7 @@ type Props = {
   lessonSlug: string;
   curriculum: CourseModule[];
   initialProgress: Record<string, { completed: boolean; lastPosition: number }>;
+  initialEnrollmentProgress?: number;
   isStaff?: boolean;
 };
 
@@ -36,6 +37,7 @@ export default function CoursePlayer({
   lessonSlug,
   curriculum,
   initialProgress,
+  initialEnrollmentProgress = 0,
   isStaff = false,
 }: Props) {
   const router = useRouter();
@@ -52,7 +54,9 @@ export default function CoursePlayer({
       return map;
     },
   );
-  const [enrollmentProgress, setEnrollmentProgress] = useState(0);
+  const [enrollmentProgress, setEnrollmentProgress] = useState(
+    initialEnrollmentProgress,
+  );
   const [quizAnswers, setQuizAnswers] = useState<Record<number, number>>({});
   const [quizResult, setQuizResult] = useState<{
     passed: boolean;
@@ -81,6 +85,24 @@ export default function CoursePlayer({
     loadLesson();
   }, [loadLesson]);
 
+  const applyProgressResult = useCallback(
+    (
+      result: {
+        enrollmentProgress?: number;
+        lessonProgress?: { completed?: boolean };
+      } | null,
+      lessonId?: string,
+    ) => {
+      if (result?.enrollmentProgress !== undefined) {
+        setEnrollmentProgress(result.enrollmentProgress);
+      }
+      if (result?.lessonProgress?.completed && lessonId) {
+        setProgressMap((prev) => ({ ...prev, [lessonId]: true }));
+      }
+    },
+    [],
+  );
+
   const saveProgress = useCallback(
     async (markComplete = false) => {
       if (!lessonData || isLessonError(lessonData) || !lessonData.lesson)
@@ -91,18 +113,10 @@ export default function CoursePlayer({
         markComplete,
       };
       const result = await updateLessonProgress(lessonData.lesson._id, payload);
-      if (result?.enrollmentProgress !== undefined) {
-        setEnrollmentProgress(result.enrollmentProgress);
-      }
-      if (result?.lessonProgress?.completed) {
-        setProgressMap((prev) => ({
-          ...prev,
-          [lessonData.lesson._id]: true,
-        }));
-      }
+      applyProgressResult(result, lessonData.lesson._id);
       return result;
     },
-    [lessonData],
+    [lessonData, applyProgressResult],
   );
 
   useEffect(() => {
@@ -210,7 +224,7 @@ export default function CoursePlayer({
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
       {isStaff && (
         <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm text-indigo-800">
-          Staff preview mode
+          Admin preview mode
         </div>
       )}
 
@@ -291,10 +305,12 @@ export default function CoursePlayer({
                   otp={playback.otp}
                   playbackInfo={playback.playbackInfo}
                   onProgress={(seconds) => {
-                    updateLessonProgress(lesson._id, {
+                    void updateLessonProgress(lesson._id, {
                       watchedSeconds: seconds,
                       lastPosition: seconds,
-                    });
+                    }).then((result) =>
+                      applyProgressResult(result, lesson._id),
+                    );
                   }}
                   onComplete={() => saveProgress(true)}
                 />

@@ -95,6 +95,7 @@ export type Enrollment = {
   enrolledAt: string;
   completedAt?: string;
   progressPercent: number;
+  continueLessonSlug?: string | null;
   lastLessonId?: { _id: string; title: string; slug: string };
   lastAccessedAt?: string;
 };

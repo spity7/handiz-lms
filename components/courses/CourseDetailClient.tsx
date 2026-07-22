@@ -13,6 +13,7 @@ import {
   filterVisibleCurriculum,
   formatDuration,
   getFirstLesson,
+  getContinueLesson,
   getSignInUrl,
 } from "@/lib/courses";
 import {
@@ -127,10 +128,9 @@ export default function CourseDetailClient({
     }
   };
 
-  const continueHref = firstLesson
-    ? getLmsUrl(
-        `/courses/${course.slug}/learn/${enrollment?.lastLessonId?.slug || firstLesson.slug}`,
-      )
+  const continueLesson = getContinueLesson(curriculum, enrollment);
+  const continueHref = continueLesson
+    ? getLmsUrl(`/courses/${course.slug}/learn/${continueLesson.slug}`)
     : getLmsUrl(`/courses/${course.slug}`);
 
   const toggleModule = (id: string) => {
@@ -148,7 +148,7 @@ export default function CourseDetailClient({
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       {isStaff && (
         <div className="mb-6 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
-          Staff preview — unpublished content may be visible.
+          Admin preview — unpublished content may be visible.
         </div>
       )}
 

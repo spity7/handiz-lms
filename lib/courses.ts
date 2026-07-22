@@ -167,6 +167,27 @@ export function formatDuration(minutes?: number) {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
+export function getContinueLesson(
+  curriculum: CourseModule[],
+  enrollment?: Pick<Enrollment, "continueLessonSlug" | "lastLessonId"> | null,
+): Lesson | null {
+  if (enrollment?.continueLessonSlug) {
+    const lesson = flattenLessons(curriculum).find(
+      (item) => item.slug === enrollment.continueLessonSlug,
+    );
+    if (lesson) return lesson;
+  }
+
+  if (enrollment?.lastLessonId?.slug) {
+    const lesson = flattenLessons(curriculum).find(
+      (item) => item.slug === enrollment.lastLessonId?.slug,
+    );
+    if (lesson) return lesson;
+  }
+
+  return getFirstLesson(curriculum);
+}
+
 export function getFirstLesson(curriculum: CourseModule[]): Lesson | null {
   for (const mod of curriculum) {
     const lesson = mod.lessons?.find((l) => l.isPublished !== false);

@@ -29,9 +29,12 @@ export async function fetchCertificateServer(enrollmentId: string) {
 
 export async function fetchCourseProgressServer(courseId: string) {
   const res = await serverApiFetch(`progress/courses/${courseId}`);
-  if (!res.ok) return [];
+  if (!res.ok) return { progress: [], enrollment: null };
   const data = await res.json();
-  return data.progress || [];
+  return {
+    progress: data.progress || [],
+    enrollment: data.enrollment || null,
+  };
 }
 
 export async function fetchCurrentUserServer() {

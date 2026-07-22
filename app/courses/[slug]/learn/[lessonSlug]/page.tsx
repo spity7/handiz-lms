@@ -34,14 +34,15 @@ export default async function LessonPlayerPage({ params }: Props) {
     ? data.curriculum
     : data.curriculum.filter((mod) => (mod.lessons || []).length > 0);
 
-  const progressList = await fetchCourseProgressServer(data.course._id);
+  const { progress: progressList, enrollment: progressEnrollment } =
+    await fetchCourseProgressServer(data.course._id);
   const initialProgress: Record<
     string,
     { completed: boolean; lastPosition: number }
   > = {};
   progressList.forEach(
     (p: { lessonId: string; completed: boolean; lastPosition: number }) => {
-      initialProgress[p.lessonId] = {
+      initialProgress[String(p.lessonId)] = {
         completed: p.completed,
         lastPosition: p.lastPosition,
       };
@@ -54,6 +55,7 @@ export default async function LessonPlayerPage({ params }: Props) {
       lessonSlug={lessonSlug}
       curriculum={visibleCurriculum}
       initialProgress={initialProgress}
+      initialEnrollmentProgress={progressEnrollment?.progressPercent ?? 0}
       isStaff={data.isStaff}
     />
   );
