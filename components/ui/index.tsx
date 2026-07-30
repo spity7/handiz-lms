@@ -1,4 +1,11 @@
 import type { ReactNode } from "react";
+import {
+  clampProgress,
+  getProgressBadgeClass,
+  getProgressFillClass,
+  getProgressTextClass,
+  getProgressTrackClass,
+} from "@/lib/progressColors";
 
 type ButtonProps = {
   children: ReactNode;
@@ -92,17 +99,58 @@ export function Card({
 export function ProgressBar({
   value,
   className = "",
+  size = "md",
 }: {
   value: number;
   className?: string;
+  size?: "sm" | "md";
 }) {
+  const clamped = clampProgress(value);
+  const height = size === "sm" ? "h-1.5" : "h-2";
+
   return (
-    <div className={`progress-track ${className}`}>
+    <div
+      className={`w-full overflow-hidden rounded-full transition-colors duration-300 ${height} ${getProgressTrackClass(clamped)} ${className}`}
+      role="progressbar"
+      aria-valuenow={clamped}
+      aria-valuemin={0}
+      aria-valuemax={100}
+    >
       <div
-        className="progress-fill"
-        style={{ width: `${Math.min(100, value)}%` }}
+        className={`h-full rounded-full transition-all duration-500 ease-out ${getProgressFillClass(clamped)}`}
+        style={{ width: `${clamped}%` }}
       />
     </div>
+  );
+}
+
+export function ProgressValue({
+  value,
+  className = "",
+  asBadge = false,
+}: {
+  value: number;
+  className?: string;
+  asBadge?: boolean;
+}) {
+  const clamped = clampProgress(value);
+
+  if (asBadge) {
+    return (
+      <span
+        className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums ring-1 ring-inset ${getProgressBadgeClass(clamped)} ${className}`}
+      >
+        {clamped}%
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`text-sm font-semibold tabular-nums ${getProgressTextClass(clamped)} ${className}`}
+    >
+      {clamped}%
+    </span>
   );
 }
 

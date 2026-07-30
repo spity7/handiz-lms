@@ -5,7 +5,7 @@ import Image from "next/image";
 import { Award, Play } from "lucide-react";
 import type { Enrollment } from "@/types/course";
 import { formatDuration } from "@/lib/courses";
-import { Button, Card, ProgressBar } from "@/components/ui";
+import { Button, Card, ProgressBar, ProgressValue } from "@/components/ui";
 import { getLmsUrl, getMainSiteUrl } from "@/lib/urls";
 
 export default function MyCoursesList({
@@ -67,9 +67,10 @@ export default function MyCoursesList({
               <div className="mb-3">
                 <div className="mb-1.5 flex justify-between text-xs">
                   <span className="text-slate-500">Progress</span>
-                  <span className="font-medium text-indigo-600">
-                    {enrollment.progressPercent}%
-                  </span>
+                  <ProgressValue
+                    value={enrollment.progressPercent}
+                    className="text-xs"
+                  />
                 </div>
                 <ProgressBar value={enrollment.progressPercent} />
               </div>

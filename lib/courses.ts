@@ -114,6 +114,32 @@ export async function fetchMyEnrollments(): Promise<Enrollment[]> {
   return data.enrollments || [];
 }
 
+export async function fetchCourseProgress(courseId: string) {
+  const res = await fetch(
+    `${API_BASE_URL}progress/courses/${courseId}`,
+    fetchOpts(true),
+  );
+  if (!res.ok)
+    return { progress: [] as { lessonId: string; completed: boolean }[] };
+  const data = await res.json();
+  return {
+    progress: (data.progress || []) as {
+      lessonId: string;
+      completed: boolean;
+    }[],
+  };
+}
+
+export function buildLessonProgressMap(
+  progressList: { lessonId: string; completed: boolean }[],
+): Record<string, boolean> {
+  const map: Record<string, boolean> = {};
+  for (const p of progressList) {
+    if (p.completed) map[String(p.lessonId)] = true;
+  }
+  return map;
+}
+
 export async function updateLessonProgress(
   lessonId: string,
   payload: {

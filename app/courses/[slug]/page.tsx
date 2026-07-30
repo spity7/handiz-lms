@@ -1,6 +1,10 @@
 import CourseDetailClient from "@/components/courses/CourseDetailClient";
 import { fetchCourseBySlug } from "@/lib/courses";
-import { fetchCourseBySlugServer } from "@/lib/coursesServer";
+import {
+  fetchCourseBySlugServer,
+  fetchCourseProgressServer,
+} from "@/lib/coursesServer";
+import { buildLessonProgressMap } from "@/lib/courses";
 import { getCourseSalePrice } from "@/lib/coursePricing";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
@@ -36,6 +40,11 @@ export default async function CourseDetailPage({
 
   if (!data) notFound();
 
+  const { progress: progressList } = await fetchCourseProgressServer(
+    data.course._id,
+  );
+  const lessonProgress = buildLessonProgressMap(progressList);
+
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "Course",
@@ -67,6 +76,7 @@ export default async function CourseDetailPage({
         isStaff={data.isStaff}
         enrolledQuery={query.enrolled}
         paymentQuery={query.payment}
+        lessonProgress={lessonProgress}
       />
     </>
   );
