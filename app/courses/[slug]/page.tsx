@@ -11,7 +11,12 @@ import { notFound } from "next/navigation";
 
 type Props = {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ enrolled?: string; payment?: string }>;
+  searchParams: Promise<{
+    enrolled?: string;
+    payment?: string;
+    enrollContact?: string;
+    lesson?: string;
+  }>;
 };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -76,6 +81,8 @@ export default async function CourseDetailPage({
         isStaff={data.isStaff}
         enrolledQuery={query.enrolled}
         paymentQuery={query.payment}
+        enrollContactQuery={query.enrollContact}
+        lessonIntentQuery={query.lesson}
         lessonProgress={lessonProgress}
       />
     </>

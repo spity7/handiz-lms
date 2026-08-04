@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -55,6 +55,12 @@ import {
 } from "@/components/ui";
 import { getLmsUrl } from "@/lib/urls";
 import { buildCourseInterestWhatsAppUrl } from "@/lib/courseContact";
+import {
+  hasPendingLessonIntent,
+  openCourseContactWhatsApp,
+  redirectToSignInForLesson,
+  resolveLessonIntent,
+} from "@/lib/courseLessonAccess";
 import WhatsAppContactButton from "@/components/courses/WhatsAppContactButton";
 import LessonTypeIcon from "@/components/courses/LessonTypeIcon";
 import { getLessonDurationLabel } from "@/lib/lessonUi";
@@ -344,6 +350,8 @@ export default function CourseDetailClient({
   isStaff = false,
   enrolledQuery,
   paymentQuery,
+  enrollContactQuery,
+  lessonIntentQuery,
   lessonProgress: initialLessonProgress = {},
 }: {
   course: Course;
@@ -353,10 +361,13 @@ export default function CourseDetailClient({
   isStaff?: boolean;
   enrolledQuery?: string;
   paymentQuery?: string;
+  enrollContactQuery?: string;
+  lessonIntentQuery?: string;
   lessonProgress?: Record<string, boolean>;
 }) {
   const router = useRouter();
-  const { isAuthenticated, user } = useAuthUser();
+  const { isAuthenticated, user, loading: authLoading } = useAuthUser();
+  const enrollContactHandled = useRef(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -455,6 +466,64 @@ export default function CourseDetailClient({
     };
   }, [course._id, course.slug, enrolledQuery, isAuthenticated, router]);
 
+  useEffect(() => {
+    if (enrollContactHandled.current) return;
+    if (authLoading || !isAuthenticated) return;
+    if (!hasPendingLessonIntent(course.slug, enrollContactQuery)) return;
+
+    let cancelled = false;
+
+    const handlePostLoginLessonIntent = async () => {
+      const lessonSlug = resolveLessonIntent(course.slug, lessonIntentQuery);
+      const data = await fetchCourseBySlug(course.slug, true);
+      if (!data || cancelled) return;
+
+      setIsEnrolled(data.isEnrolled);
+      setEnrollment(data.enrollment);
+
+      enrollContactHandled.current = true;
+
+      if (data.isEnrolled || data.isStaff) {
+        const target = lessonSlug
+          ? `/courses/${course.slug}/learn/${lessonSlug}`
+          : `/courses/${course.slug}`;
+        router.replace(target);
+        return;
+      }
+
+      const userLabel = user
+        ? [user.firstname, user.lastname].filter(Boolean).join(" ") ||
+          user.email ||
+          user.username
+        : undefined;
+      const href = buildCourseInterestWhatsAppUrl({
+        courseTitle: course.title,
+        courseId: course._id,
+        userId: user?._id,
+        userLabel,
+      });
+      openCourseContactWhatsApp(href);
+    };
+
+    void handlePostLoginLessonIntent().catch(() => {
+      enrollContactHandled.current = false;
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    authLoading,
+    course._id,
+    course.slug,
+    course.title,
+    enrollContactQuery,
+    isAuthenticated,
+    lessonIntentQuery,
+    router,
+    user,
+  ]);
+
   const handleEnroll = async () => {
     if (!isAuthenticated) {
       window.location.href = getSignInUrl(`/courses/${course.slug}`);
@@ -496,6 +565,25 @@ export default function CourseDetailClient({
     if (lesson.isPreview) return true;
     if (isEnrolled && !lesson.locked) return true;
     return false;
+  };
+
+  const isSequentiallyLockedLesson = (lesson: Lesson) =>
+    !isStaff && isEnrolled && Boolean(lesson.locked) && !lesson.isPreview;
+
+  const handleLockedLessonClick = (lesson: Lesson) => {
+    if (isSequentiallyLockedLesson(lesson)) return;
+
+    if (!isAuthenticated) {
+      redirectToSignInForLesson(course.slug, lesson.slug);
+      return;
+    }
+
+    if (isEnrolled || isStaff) {
+      router.push(`/courses/${course.slug}/learn/${lesson.slug}`);
+      return;
+    }
+
+    openCourseContactWhatsApp(whatsAppHref);
   };
 
   const enrollmentCardProps = {
@@ -915,20 +1003,26 @@ export default function CourseDetailClient({
                                 <ul className="border-t border-slate-100">
                                   {(mod.lessons || []).map((lesson) => {
                                     const canOpen = canOpenLesson(lesson);
+                                    const sequentiallyLocked =
+                                      isSequentiallyLockedLesson(lesson);
+                                    const showEnrollmentPrompt =
+                                      !canOpen && !sequentiallyLocked;
                                     const duration =
                                       getLessonDurationLabel(lesson);
                                     const isPreview = lesson.isPreview;
                                     const lessonCompleted =
                                       lessonProgress[lesson._id] === true;
 
-                                    const rowClass = `group flex items-center gap-3 px-3.5 py-2.5 transition-colors sm:px-4 sm:py-3 ${
+                                    const rowClass = `group flex w-full items-center gap-3 px-3.5 py-2.5 text-left transition-colors sm:px-4 sm:py-3 ${
                                       lessonCompleted
                                         ? "border-l-2 border-l-emerald-400 hover:bg-emerald-50/40"
                                         : canOpen
                                           ? isPreview
                                             ? "border-l-2 border-l-emerald-400 hover:bg-emerald-50/50"
                                             : "border-l-2 border-l-transparent hover:border-l-indigo-500 hover:bg-indigo-50/30"
-                                          : "border-l-2 border-l-transparent bg-slate-50/40"
+                                          : showEnrollmentPrompt
+                                            ? "cursor-pointer border-l-2 border-l-transparent hover:border-l-amber-400 hover:bg-amber-50/40"
+                                            : "border-l-2 border-l-transparent bg-slate-50/40"
                                     }`;
 
                                     const rowInner = (
@@ -999,6 +1093,16 @@ export default function CourseDetailClient({
                                           >
                                             {rowInner}
                                           </Link>
+                                        ) : showEnrollmentPrompt ? (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleLockedLessonClick(lesson)
+                                            }
+                                            className={rowClass}
+                                          >
+                                            {rowInner}
+                                          </button>
                                         ) : (
                                           <div className={rowClass}>
                                             {rowInner}

@@ -58,8 +58,13 @@ export type LessonFetchSuccess = {
   enrollment: Enrollment | null;
 };
 
+export type LessonDeviceErrorCode =
+  | "DEVICE_REGISTERED_ELSEWHERE"
+  | "LESSON_ACCESS_BLOCKED";
+
 export type LessonFetchError = {
   error: string;
+  errorcode?: LessonDeviceErrorCode;
   encodingStatus?: string;
 };
 
@@ -75,13 +80,19 @@ export async function fetchLesson(
   );
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
+    const payload = data as {
+      message?: string;
+      errorcode?: LessonDeviceErrorCode;
+      encodingStatus?: string;
+    };
     return {
       error:
-        (data as { message?: string }).message ||
+        payload.message ||
         (res.status === 403
           ? "You do not have access to this lesson."
           : "Lesson unavailable."),
-      encodingStatus: (data as { encodingStatus?: string }).encodingStatus,
+      errorcode: payload.errorcode,
+      encodingStatus: payload.encodingStatus,
     };
   }
   return res.json() as Promise<LessonFetchSuccess>;

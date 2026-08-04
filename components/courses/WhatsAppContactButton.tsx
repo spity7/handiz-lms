@@ -17,12 +17,14 @@ type WhatsAppContactButtonProps = {
   href: string;
   className?: string;
   size?: "default" | "lg";
+  label?: string;
 } & Pick<ComponentProps<"a">, "onClick">;
 
 export default function WhatsAppContactButton({
   href,
   className = "",
   size = "default",
+  label = "Contact us on WhatsApp",
   onClick,
 }: WhatsAppContactButtonProps) {
   const sizeClass =
@@ -39,7 +41,7 @@ export default function WhatsAppContactButton({
       className={`inline-flex w-full items-center justify-center font-medium text-white shadow-sm transition-colors hover:bg-[#20BD5A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25D366] focus-visible:ring-offset-2 ${sizeClass} bg-[#25D366] ${className}`}
     >
       <WhatsAppIcon className="h-5 w-5 shrink-0" />
-      Contact us on WhatsApp
+      {label}
     </a>
   );
 }

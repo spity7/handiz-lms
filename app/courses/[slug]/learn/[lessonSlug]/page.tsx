@@ -52,6 +52,8 @@ export default async function LessonPlayerPage({ params }: Props) {
   return (
     <CoursePlayer
       courseSlug={slug}
+      courseTitle={data.course.title}
+      courseId={data.course._id}
       lessonSlug={lessonSlug}
       curriculum={visibleCurriculum}
       initialProgress={initialProgress}

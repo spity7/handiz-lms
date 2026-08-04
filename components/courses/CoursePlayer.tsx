@@ -22,6 +22,7 @@ import {
   getAdjacentLessons,
   submitQuizAttempt,
   updateLessonProgress,
+  type LessonDeviceErrorCode,
   type LessonFetchResult,
 } from "@/lib/courses";
 import { getLessonPosition, getLessonTypeLabel } from "@/lib/lessonUi";
@@ -38,9 +39,12 @@ import {
   ProgressValue,
 } from "@/components/ui";
 import { getLmsUrl } from "@/lib/urls";
+import LessonDeviceBlockedCard from "@/components/courses/LessonDeviceBlockedCard";
 
 type Props = {
   courseSlug: string;
+  courseTitle: string;
+  courseId: string;
   lessonSlug: string;
   curriculum: CourseModule[];
   initialProgress: Record<string, { completed: boolean; lastPosition: number }>;
@@ -52,8 +56,21 @@ const OPTION_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 function isLessonError(
   data: LessonFetchResult,
-): data is { error: string; encodingStatus?: string } {
+): data is Extract<LessonFetchResult, { error: string }> {
   return Boolean(data && "error" in data);
+}
+
+function isLessonDeviceError(data: LessonFetchResult): data is Extract<
+  LessonFetchResult,
+  { error: string }
+> & {
+  errorcode: LessonDeviceErrorCode;
+} {
+  return (
+    isLessonError(data) &&
+    (data.errorcode === "DEVICE_REGISTERED_ELSEWHERE" ||
+      data.errorcode === "LESSON_ACCESS_BLOCKED")
+  );
 }
 
 function isImageUrl(url: string, fileType?: string) {
@@ -89,6 +106,8 @@ function LessonLoadingSkeleton() {
 
 export default function CoursePlayer({
   courseSlug,
+  courseTitle,
+  courseId,
   lessonSlug,
   curriculum,
   initialProgress,
@@ -236,6 +255,19 @@ export default function CoursePlayer({
       isLessonError(lessonData) &&
       lessonData.encodingStatus &&
       lessonData.encodingStatus !== "ready";
+
+    if (lessonData && isLessonDeviceError(lessonData)) {
+      return (
+        <LessonDeviceBlockedCard
+          courseSlug={courseSlug}
+          courseTitle={courseTitle}
+          courseId={courseId}
+          lessonSlug={lessonSlug}
+          errorcode={lessonData.errorcode}
+          message={lessonData.error}
+        />
+      );
+    }
 
     return (
       <div className="mx-auto max-w-lg px-4 py-16 text-center">
