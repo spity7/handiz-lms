@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const VDO_API_SCRIPT = "https://player.vdocipher.com/v2/api.js";
 
@@ -66,9 +66,16 @@ async function getPlayerInstance(
   return null;
 }
 
+type PlaybackTokens = {
+  otp: string;
+  playbackInfo: string;
+};
+
 type Props = {
   otp: string;
   playbackInfo: string;
+  ttlSeconds?: number;
+  onRefreshPlayback?: () => Promise<PlaybackTokens | null>;
   onProgress?: (seconds: number) => void;
   onComplete?: () => void;
 };
@@ -76,18 +83,60 @@ type Props = {
 export default function VdoCipherPlayer({
   otp,
   playbackInfo,
+  ttlSeconds = 300,
+  onRefreshPlayback,
   onProgress,
   onComplete,
 }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const lastReported = useRef(0);
+  const resumeAtRef = useRef(0);
   const onProgressRef = useRef(onProgress);
   const onCompleteRef = useRef(onComplete);
+  const onRefreshRef = useRef(onRefreshPlayback);
+  const [tokens, setTokens] = useState<PlaybackTokens>({
+    otp,
+    playbackInfo,
+  });
 
   useEffect(() => {
     onProgressRef.current = onProgress;
     onCompleteRef.current = onComplete;
-  }, [onProgress, onComplete]);
+    onRefreshRef.current = onRefreshPlayback;
+  }, [onProgress, onComplete, onRefreshPlayback]);
+
+  useEffect(() => {
+    setTokens({ otp, playbackInfo });
+  }, [otp, playbackInfo]);
+
+  useEffect(() => {
+    if (!onRefreshRef.current) return;
+
+    const refreshMs = Math.max(60_000, (ttlSeconds - 45) * 1000);
+    const timer = window.setInterval(() => {
+      void (async () => {
+        const iframe = iframeRef.current;
+        if (iframe) {
+          try {
+            const player = await getPlayerInstance(iframe);
+            if (player) {
+              resumeAtRef.current = Math.floor(player.video.currentTime || 0);
+            }
+          } catch {
+            /* keep last reported progress as fallback */
+            resumeAtRef.current = lastReported.current;
+          }
+        }
+
+        const next = await onRefreshRef.current?.();
+        if (next?.otp && next?.playbackInfo) {
+          setTokens(next);
+        }
+      })();
+    }, refreshMs);
+
+    return () => window.clearInterval(timer);
+  }, [ttlSeconds]);
 
   useEffect(() => {
     lastReported.current = 0;
@@ -100,6 +149,16 @@ export default function VdoCipherPlayer({
     const setupPlayer = async () => {
       const player = await getPlayerInstance(iframe);
       if (cancelled || !player) return;
+
+      const resumeAt = resumeAtRef.current;
+      if (resumeAt > 0) {
+        try {
+          player.video.currentTime = resumeAt;
+        } catch {
+          /* seek when supported */
+        }
+        resumeAtRef.current = 0;
+      }
 
       const handleTimeUpdate = () => {
         const sec = Math.floor(player.video.currentTime || 0);
@@ -136,9 +195,9 @@ export default function VdoCipherPlayer({
       iframe.removeEventListener("load", handleIframeLoad);
       cleanup?.();
     };
-  }, [otp, playbackInfo]);
+  }, [tokens.otp, tokens.playbackInfo]);
 
-  const src = `https://player.vdocipher.com/v2/?otp=${encodeURIComponent(otp)}&playbackInfo=${encodeURIComponent(playbackInfo)}`;
+  const src = `https://player.vdocipher.com/v2/?otp=${encodeURIComponent(tokens.otp)}&playbackInfo=${encodeURIComponent(tokens.playbackInfo)}`;
 
   return (
     <div

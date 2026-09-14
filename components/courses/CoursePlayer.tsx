@@ -19,6 +19,7 @@ import CurriculumSidebar from "@/components/courses/CurriculumSidebar";
 import VdoCipherPlayer from "@/components/courses/VdoCipherPlayer";
 import {
   fetchLesson,
+  refreshLessonPlaybackOtp,
   getAdjacentLessons,
   submitQuizAttempt,
   updateLessonProgress,
@@ -251,10 +252,16 @@ export default function CoursePlayer({
     const message = isLessonError(lessonData)
       ? lessonData.error
       : "Lesson not found or access denied.";
+    const encodingStatus = isLessonError(lessonData)
+      ? lessonData.encodingStatus
+      : undefined;
     const processing =
       isLessonError(lessonData) &&
-      lessonData.encodingStatus &&
-      lessonData.encodingStatus !== "ready";
+      encodingStatus &&
+      encodingStatus !== "ready" &&
+      encodingStatus !== "failed";
+    const encodingFailed =
+      isLessonError(lessonData) && encodingStatus === "failed";
 
     if (lessonData && isLessonDeviceError(lessonData)) {
       return (
@@ -273,7 +280,13 @@ export default function CoursePlayer({
       <div className="mx-auto max-w-lg px-4 py-16 text-center">
         <Card>
           <p
-            className={`mb-4 text-sm ${processing ? "text-indigo-600" : "text-amber-700"}`}
+            className={`mb-4 text-sm ${
+              encodingFailed
+                ? "text-red-700"
+                : processing
+                  ? "text-indigo-600"
+                  : "text-amber-700"
+            }`}
           >
             {message}
           </p>
@@ -428,6 +441,14 @@ export default function CoursePlayer({
                 <VdoCipherPlayer
                   otp={playback.otp}
                   playbackInfo={playback.playbackInfo}
+                  ttlSeconds={playback.ttlSeconds}
+                  onRefreshPlayback={async () => {
+                    const refreshed = await refreshLessonPlaybackOtp(
+                      courseSlug,
+                      lessonSlug,
+                    );
+                    return refreshed?.playback ?? null;
+                  }}
                   onProgress={(seconds) => {
                     void updateLessonProgress(lesson._id, {
                       watchedSeconds: seconds,
@@ -448,16 +469,20 @@ export default function CoursePlayer({
             {lesson.type === "video" && !playback && (
               <div
                 className={`mb-5 rounded-2xl border px-4 py-4 text-sm ${
-                  lesson.video?.encodingStatus &&
-                  lesson.video.encodingStatus !== "ready"
-                    ? "border-indigo-100 bg-indigo-50 text-indigo-700"
-                    : "border-amber-100 bg-amber-50 text-amber-700"
+                  lesson.video?.encodingStatus === "failed"
+                    ? "border-red-100 bg-red-50 text-red-700"
+                    : lesson.video?.encodingStatus &&
+                        lesson.video.encodingStatus !== "ready"
+                      ? "border-indigo-100 bg-indigo-50 text-indigo-700"
+                      : "border-amber-100 bg-amber-50 text-amber-700"
                 }`}
               >
-                {lesson.video?.encodingStatus &&
-                lesson.video.encodingStatus !== "ready"
-                  ? "This video is still processing. Please check back shortly."
-                  : "Video playback is unavailable. Please contact support if this persists."}
+                {lesson.video?.encodingStatus === "failed"
+                  ? "Video encoding failed. Please contact support."
+                  : lesson.video?.encodingStatus &&
+                      lesson.video.encodingStatus !== "ready"
+                    ? "This video is still processing. Please check back shortly."
+                    : "Video playback is unavailable. Please contact support if this persists."}
               </div>
             )}
 

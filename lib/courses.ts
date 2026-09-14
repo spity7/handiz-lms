@@ -49,7 +49,11 @@ export async function fetchCourseBySlug(slug: string, withAuth = false) {
 export type LessonFetchSuccess = {
   course: { _id: string; title: string; slug: string };
   lesson: Lesson;
-  playback: { otp: string; playbackInfo: string } | null;
+  playback: {
+    otp: string;
+    playbackInfo: string;
+    ttlSeconds?: number;
+  } | null;
   quiz: {
     _id: string;
     passingScore: number;
@@ -96,6 +100,26 @@ export async function fetchLesson(
     };
   }
   return res.json() as Promise<LessonFetchSuccess>;
+}
+
+export async function refreshLessonPlaybackOtp(
+  slug: string,
+  lessonSlug: string,
+): Promise<{
+  playback: { otp: string; playbackInfo: string; ttlSeconds?: number };
+} | null> {
+  const res = await fetch(
+    `${API_BASE_URL}courses/${slug}/lessons/${lessonSlug}/playback-otp`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+  if (!res.ok) return null;
+  return res.json() as Promise<{
+    playback: { otp: string; playbackInfo: string; ttlSeconds?: number };
+  }>;
 }
 
 export async function enrollFree(courseId: string) {
