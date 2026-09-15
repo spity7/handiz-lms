@@ -7,6 +7,7 @@ import { useAuthUser } from "@/hooks/useAuthUser";
 import {
   buildLessonDeviceSupportGmailUrl,
   buildLessonDeviceSupportWhatsAppUrl,
+  type LessonDeviceSupportContactOptions,
 } from "@/lib/courseContact";
 import type { LessonDeviceErrorCode } from "@/lib/courses";
 import { getLmsUrl } from "@/lib/urls";
@@ -34,7 +35,7 @@ export default function LessonDeviceBlockedCard({
   const { user } = useAuthUser();
   const isBlocked = errorcode === "LESSON_ACCESS_BLOCKED";
 
-  const contactOptions = useMemo(() => {
+  const contactOptions = useMemo((): LessonDeviceSupportContactOptions => {
     const userLabel = user
       ? [user.firstname, user.lastname].filter(Boolean).join(" ") ||
         user.email ||
@@ -47,7 +48,7 @@ export default function LessonDeviceBlockedCard({
       lessonSlug,
       userId: user?._id,
       userLabel,
-      reason: (isBlocked ? "access_blocked" : "device_elsewhere") as const,
+      reason: isBlocked ? "access_blocked" : "device_elsewhere",
     };
   }, [courseId, courseTitle, isBlocked, lessonSlug, user]);
 
@@ -74,8 +75,9 @@ export default function LessonDeviceBlockedCard({
         </h2>
         <p className="text-sm text-slate-600">{message}</p>
         <p className="text-sm text-slate-500">
-          Course playback is limited to one device per account. Contact support
-          if you need to change your registered device.
+          {isBlocked
+            ? "If you believe this is a mistake or need access restored, contact support."
+            : "Course playback is limited to one device per account. Contact support if you need to change your registered device."}
         </p>
         <div className="flex flex-col gap-2">
           <WhatsAppContactButton
