@@ -1,7 +1,8 @@
+import { cache } from "react";
 import type { Course, CourseModule, Enrollment } from "@/types/course";
 import { serverApiFetch } from "@/lib/serverApi";
 
-export async function fetchCourseBySlugServer(slug: string) {
+export const fetchCourseBySlugServer = cache(async (slug: string) => {
   const res = await serverApiFetch(`courses/slug/${slug}`);
   if (!res.ok) return null;
   return res.json() as Promise<{
@@ -11,23 +12,23 @@ export async function fetchCourseBySlugServer(slug: string) {
     isEnrolled: boolean;
     isStaff?: boolean;
   }>;
-}
+});
 
-export async function fetchMyEnrollmentsServer() {
+export const fetchMyEnrollmentsServer = cache(async () => {
   const res = await serverApiFetch("enrollments/me");
   if (!res.ok) return [];
   const data = await res.json();
   return (data.enrollments || []) as Enrollment[];
-}
+});
 
-export async function fetchCertificateServer(enrollmentId: string) {
+export const fetchCertificateServer = cache(async (enrollmentId: string) => {
   const res = await serverApiFetch(`certificates/${enrollmentId}`);
   if (!res.ok) return null;
   const data = await res.json();
   return data.certificate;
-}
+});
 
-export async function fetchCourseProgressServer(courseId: string) {
+export const fetchCourseProgressServer = cache(async (courseId: string) => {
   const res = await serverApiFetch(`progress/courses/${courseId}`);
   if (!res.ok) return { progress: [], enrollment: null };
   const data = await res.json();
@@ -35,10 +36,10 @@ export async function fetchCourseProgressServer(courseId: string) {
     progress: data.progress || [],
     enrollment: data.enrollment || null,
   };
-}
+});
 
-export async function fetchCurrentUserServer() {
+export const fetchCurrentUserServer = cache(async () => {
   const res = await serverApiFetch("me");
   if (!res.ok) return null;
   return res.json();
-}
+});

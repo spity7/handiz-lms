@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -16,10 +22,16 @@ import {
 } from "lucide-react";
 import type { CourseModule } from "@/types/course";
 import CurriculumSidebar from "@/components/courses/CurriculumSidebar";
-import VdoCipherPlayer from "@/components/courses/VdoCipherPlayer";
+import dynamic from "next/dynamic";
+
+const VdoCipherPlayer = dynamic(
+  () => import("@/components/courses/VdoCipherPlayer"),
+  { ssr: false },
+);
 import {
   fetchCourseProgress,
   fetchLesson,
+  getLessonResumeSeconds,
   refreshLessonPlaybackOtp,
   getAdjacentLessons,
   submitQuizAttempt,
@@ -41,6 +53,8 @@ import {
   ProgressValue,
 } from "@/components/ui";
 import { getLmsUrl } from "@/lib/urls";
+import { useAuthUser } from "@/hooks/useAuthUser";
+import { canPreviewLmsContent } from "@/lib/lmsCourseAccess";
 import LessonDeviceBlockedCard from "@/components/courses/LessonDeviceBlockedCard";
 
 type Props = {
@@ -88,6 +102,17 @@ function resourceFileName(url: string, title?: string, index = 0) {
   return `resource-${index + 1}`;
 }
 
+function LessonVideoSkeleton() {
+  return (
+    <div className="animate-pulse space-y-5">
+      <div className="mb-2 h-6 w-24 rounded-md bg-slate-100" />
+      <div className="h-8 w-2/3 max-w-lg rounded-lg bg-slate-200" />
+      <div className="aspect-video w-full rounded-2xl bg-slate-200" />
+      <div className="h-4 w-56 rounded bg-slate-100" />
+    </div>
+  );
+}
+
 function LessonLoadingSkeleton() {
   return (
     <div className="animate-pulse space-y-6">
@@ -117,8 +142,13 @@ export default function CoursePlayer({
   isStaff = false,
 }: Props) {
   const router = useRouter();
+  const { user } = useAuthUser();
+  const effectiveIsStaff = isStaff || canPreviewLmsContent(user);
   const [lessonData, setLessonData] = useState<LessonFetchResult>(null);
   const [loading, setLoading] = useState(true);
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
+  const [lessonPlaybackResumeSeconds, setLessonPlaybackResumeSeconds] =
+    useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [quizError, setQuizError] = useState("");
   const [quizSubmitting, setQuizSubmitting] = useState(false);
@@ -140,6 +170,7 @@ export default function CoursePlayer({
     score: number;
   } | null>(null);
   const [navigating, setNavigating] = useState(false);
+  const isFirstLessonSlugEffect = useRef(true);
   const videoPlaybackRef = useRef({ watchedSeconds: 0, lastPosition: 0 });
   const [resumePositionByLesson, setResumePositionByLesson] = useState<
     Record<string, number>
@@ -147,7 +178,7 @@ export default function CoursePlayer({
     const map: Record<string, number> = {};
     for (const [id, entry] of Object.entries(initialProgress)) {
       if (!entry.completed && entry.lastPosition > 0) {
-        map[id] = entry.lastPosition;
+        map[id] = Math.max(map[id] ?? 0, entry.lastPosition);
       }
     }
     return map;
@@ -208,8 +239,28 @@ export default function CoursePlayer({
     ]);
 
     mergeProgressPositions(progressPayload.progress);
+    setProgressMap((prev) => {
+      const next = { ...prev };
+      for (const row of progressPayload.progress) {
+        if (row.completed) {
+          next[String(row.lessonId)] = true;
+        }
+      }
+      return next;
+    });
+
+    let resumeSeconds = 0;
+    if (data && !isLessonError(data)) {
+      resumeSeconds = getLessonResumeSeconds(
+        progressPayload.progress,
+        data.lesson._id,
+      );
+    }
+    setLessonPlaybackResumeSeconds(resumeSeconds);
+
     setLessonData(data);
     setLoading(false);
+    setInitialLoadDone(true);
 
     if (
       data &&
@@ -223,6 +274,18 @@ export default function CoursePlayer({
   useEffect(() => {
     loadLesson();
   }, [loadLesson]);
+
+  useLayoutEffect(() => {
+    if (isFirstLessonSlugEffect.current) {
+      isFirstLessonSlugEffect.current = false;
+      return;
+    }
+    setLoading(true);
+    setLessonData(null);
+    setLessonPlaybackResumeSeconds(0);
+    setQuizResult(null);
+    setQuizAnswers({});
+  }, [lessonSlug]);
 
   const applyProgressResult = useCallback(
     (
@@ -310,7 +373,9 @@ export default function CoursePlayer({
       setNavigating(true);
       try {
         await saveProgress(false);
-        router.push(`/courses/${courseSlug}/learn/${targetSlug}`);
+        const href = `/courses/${courseSlug}/learn/${targetSlug}`;
+        router.prefetch(href);
+        router.push(href, { scroll: false });
       } finally {
         setNavigating(false);
       }
@@ -358,7 +423,9 @@ export default function CoursePlayer({
       ) {
         await saveProgress(false);
       }
-      router.push(`/courses/${courseSlug}/learn/${targetSlug}`);
+      const href = `/courses/${courseSlug}/learn/${targetSlug}`;
+      router.prefetch(href);
+      router.push(href, { scroll: false });
     } finally {
       setNavigating(false);
     }
@@ -366,7 +433,17 @@ export default function CoursePlayer({
 
   const { prev, next } = getAdjacentLessons(curriculum, lessonSlug);
 
-  if (loading) {
+  const sidebarProps = {
+    courseSlug,
+    curriculum,
+    currentLessonSlug: lessonSlug,
+    progressMap,
+    enrollmentProgress,
+    isStaff: effectiveIsStaff,
+    onLessonLinkClick: navigateToLesson,
+  };
+
+  if (loading && !initialLoadDone) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         <LessonLoadingSkeleton />
@@ -374,7 +451,146 @@ export default function CoursePlayer({
     );
   }
 
-  if (!lessonData || isLessonError(lessonData)) {
+  if (initialLoadDone && (loading || !lessonData)) {
+    const pendingLesson = lessonPosition.lesson;
+    const { prev: switchPrev, next: switchNext } = getAdjacentLessons(
+      curriculum,
+      lessonSlug,
+    );
+
+    return (
+      <>
+        <div className="sticky top-16 z-30 border-b border-slate-200/80 bg-white/95 backdrop-blur-lg">
+          <div className="mx-auto max-w-7xl px-4 py-2.5 sm:px-6 lg:px-8">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                className="inline-flex shrink-0 items-center justify-center rounded-lg border border-slate-200 p-2 text-slate-600 transition-colors hover:bg-slate-50 lg:hidden"
+                onClick={() => setSidebarOpen(true)}
+                aria-label="Open curriculum"
+              >
+                <List className="h-4 w-4" />
+              </button>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                  <Link
+                    href={`/courses/${courseSlug}`}
+                    className="truncate transition-colors hover:text-indigo-600"
+                  >
+                    {courseTitle}
+                  </Link>
+                  {lessonPosition.index > 0 && (
+                    <>
+                      <span className="text-slate-300">/</span>
+                      <span className="shrink-0 tabular-nums">
+                        {lessonPosition.index}/{lessonPosition.total}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <div className="hidden min-w-[5rem] sm:block">
+                  <ProgressBar value={enrollmentProgress} />
+                </div>
+                <ProgressValue value={enrollmentProgress} asBadge />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {sidebarOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden">
+            <button
+              type="button"
+              className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+              aria-label="Close lesson menu"
+              onClick={() => setSidebarOpen(false)}
+            />
+            <div className="absolute inset-y-0 left-0 flex w-[min(100%,22rem)] flex-col bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+                <h2 className="text-sm font-semibold text-slate-900">
+                  Course content
+                </h2>
+                <button
+                  type="button"
+                  className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+                  onClick={() => setSidebarOpen(false)}
+                  aria-label="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4">
+                <CurriculumSidebar
+                  {...sidebarProps}
+                  onLessonLinkClick={async (targetSlug) => {
+                    await navigateToLesson(targetSlug);
+                    setSidebarOpen(false);
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8 lg:py-6 pb-28 lg:pb-8">
+          <div className="grid gap-6 lg:grid-cols-12 lg:gap-8">
+            <div className="hidden lg:col-span-4 xl:col-span-3 lg:block">
+              <CurriculumSidebar {...sidebarProps} />
+            </div>
+            <div className="lg:col-span-8 xl:col-span-9">
+              {pendingLesson ? (
+                <header className="mb-5">
+                  <div className="mb-2">
+                    <Badge variant="default">
+                      {getLessonTypeLabel(pendingLesson.type)}
+                    </Badge>
+                  </div>
+                  <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+                    {pendingLesson.title}
+                  </h1>
+                </header>
+              ) : null}
+              <LessonVideoSkeleton />
+            </div>
+          </div>
+        </div>
+
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/80 bg-white/95 p-3 backdrop-blur-lg lg:hidden">
+          <div className="flex items-center gap-2">
+            {switchPrev ? (
+              <Button
+                variant="outline"
+                disabled={navigating || loading}
+                onClick={() => handleNavigate(switchPrev.slug)}
+                className="min-w-0 flex-1"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Previous
+              </Button>
+            ) : (
+              <span className="flex-1" />
+            )}
+            {switchNext ? (
+              <Button
+                disabled={navigating || loading}
+                onClick={() => handleNavigate(switchNext.slug)}
+                className="min-w-0 flex-1"
+              >
+                Next
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            ) : (
+              <span className="flex-1" />
+            )}
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (!loading && (!lessonData || isLessonError(lessonData))) {
     const message = isLessonError(lessonData)
       ? lessonData.error
       : "Lesson not found or access denied.";
@@ -424,6 +640,10 @@ export default function CoursePlayer({
     );
   }
 
+  if (!lessonData || isLessonError(lessonData)) {
+    return null;
+  }
+
   const { course, lesson, playback, quiz } = lessonData;
   const isQuizLesson = lesson.type === "quiz";
   const isNonVideoLesson = lesson.type !== "video";
@@ -437,15 +657,6 @@ export default function CoursePlayer({
   const quizReadyToSubmit =
     quizAnsweredCount >= quizTotalQuestions && !quizResult;
   const showQuizStickyBar = isQuizLesson && quiz && !quizResult?.passed;
-
-  const sidebarProps = {
-    courseSlug,
-    curriculum,
-    currentLessonSlug: lessonSlug,
-    progressMap,
-    enrollmentProgress,
-    onLessonLinkClick: navigateToLesson,
-  };
 
   return (
     <>
@@ -491,7 +702,7 @@ export default function CoursePlayer({
         </div>
       </div>
 
-      {isStaff && (
+      {effectiveIsStaff && (
         <div className="border-b border-indigo-100 bg-indigo-50 px-4 py-1.5 text-center text-xs text-indigo-800">
           Admin preview — progress may not be saved
         </div>
@@ -576,7 +787,9 @@ export default function CoursePlayer({
                   initialResumeSeconds={
                     progressMap[lesson._id]
                       ? 0
-                      : resumePositionByLesson[lesson._id] || 0
+                      : lessonPlaybackResumeSeconds ||
+                        resumePositionByLesson[lesson._id] ||
+                        0
                   }
                   onRefreshPlayback={async () => {
                     const refreshed = await refreshLessonPlaybackOtp(

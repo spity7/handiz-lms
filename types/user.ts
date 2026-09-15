@@ -5,5 +5,6 @@ export type AuthUser = {
   email?: string;
   username?: string;
   role?: string;
+  canPreviewLmsContent?: boolean;
   isVerified?: boolean;
 };

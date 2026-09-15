@@ -46,6 +46,7 @@ import {
   getPublicPriceDisplay,
 } from "@/lib/coursePricing";
 import { useAuthUser } from "@/hooks/useAuthUser";
+import { canPreviewLmsContent } from "@/lib/lmsCourseAccess";
 import {
   Badge,
   Button,
@@ -54,14 +55,17 @@ import {
   ProgressValue,
 } from "@/components/ui";
 import { getLmsUrl } from "@/lib/urls";
-import { buildCourseInterestWhatsAppUrl } from "@/lib/courseContact";
+import {
+  buildCourseInterestGmailUrl,
+  buildCourseInterestWhatsAppUrl,
+} from "@/lib/courseContact";
 import {
   hasPendingLessonIntent,
   openCourseContactWhatsApp,
   redirectToSignInForLesson,
   resolveLessonIntent,
 } from "@/lib/courseLessonAccess";
-import WhatsAppContactButton from "@/components/courses/WhatsAppContactButton";
+import CourseEnrollmentContactButtons from "@/components/courses/CourseEnrollmentContactButtons";
 import LessonTypeIcon from "@/components/courses/LessonTypeIcon";
 import { getLessonDurationLabel } from "@/lib/lessonUi";
 
@@ -205,6 +209,7 @@ function EnrollmentCardContent({
   enrollment,
   continueHref,
   continueLesson,
+  adminPreviewHref,
   priceDisplay,
   salePrice,
   loading,
@@ -214,11 +219,13 @@ function EnrollmentCardContent({
   lessonCount,
   totalDurationMinutes,
   whatsAppHref,
+  gmailHref,
 }: {
   isEnrolled: boolean;
   enrollment: Enrollment | null;
   continueHref: string;
   continueLesson: Lesson | null;
+  adminPreviewHref?: string | null;
   priceDisplay: ReturnType<typeof getPublicPriceDisplay>;
   salePrice: number;
   loading: boolean;
@@ -228,6 +235,7 @@ function EnrollmentCardContent({
   lessonCount: number;
   totalDurationMinutes?: number;
   whatsAppHref: string;
+  gmailHref: string;
 }) {
   return (
     <div className="space-y-6">
@@ -282,6 +290,21 @@ function EnrollmentCardContent({
         </div>
       ) : (
         <div className="space-y-5">
+          {adminPreviewHref ? (
+            <div className="space-y-3 rounded-xl border border-indigo-200 bg-indigo-50/80 p-4">
+              <p className="text-sm font-medium text-indigo-900">
+                Admin preview
+              </p>
+              <p className="text-xs leading-snug text-indigo-800/90">
+                Open the full course on the LMS, including draft and unpublished
+                lessons. Progress is not saved.
+              </p>
+              <Link href={adminPreviewHref} className={primaryButtonLg}>
+                <Eye className="h-4 w-4" />
+                Preview course content
+              </Link>
+            </div>
+          ) : null}
           <div className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
             {priceDisplay.compareAt != null ? (
               <div className="space-y-3">
@@ -332,7 +355,11 @@ function EnrollmentCardContent({
             )}
           </Button>
 
-          <WhatsAppContactButton href={whatsAppHref} size="lg" />
+          <CourseEnrollmentContactButtons
+            whatsAppHref={whatsAppHref}
+            gmailHref={gmailHref}
+            size="lg"
+          />
 
           {success && <Alert variant="success">{success}</Alert>}
           {error && <Alert variant="error">{error}</Alert>}
@@ -367,6 +394,8 @@ export default function CourseDetailClient({
 }) {
   const router = useRouter();
   const { isAuthenticated, user, loading: authLoading } = useAuthUser();
+  const previewStaff = canPreviewLmsContent(user);
+  const effectiveIsStaff = isStaff || previewStaff;
   const enrollContactHandled = useRef(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -385,7 +414,7 @@ export default function CourseDetailClient({
   );
 
   const firstLesson = getFirstLesson(curriculum);
-  const visibleCurriculum = isStaff
+  const visibleCurriculum = effectiveIsStaff
     ? curriculum
     : filterVisibleCurriculum(curriculum);
   const priceDisplay = getPublicPriceDisplay(course.pricing);
@@ -408,19 +437,25 @@ export default function CourseDetailClient({
     return null;
   }, [visibleCurriculum]);
 
-  const whatsAppHref = useMemo(() => {
+  const courseInterestContact = useMemo(() => {
     const userLabel = user
       ? [user.firstname, user.lastname].filter(Boolean).join(" ") ||
         user.email ||
         user.username
       : undefined;
-    return buildCourseInterestWhatsAppUrl({
+    const options = {
       courseTitle: course.title,
       courseId: course._id,
       userId: user?._id,
       userLabel,
-    });
+    };
+    return {
+      whatsAppHref: buildCourseInterestWhatsAppUrl(options),
+      gmailHref: buildCourseInterestGmailUrl(options),
+    };
   }, [course._id, course.title, user]);
+
+  const { whatsAppHref, gmailHref } = courseInterestContact;
 
   useEffect(() => {
     if (paymentQuery === "failed") {
@@ -429,42 +464,31 @@ export default function CourseDetailClient({
   }, [paymentQuery]);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || enrolledQuery !== "true") return;
 
     let cancelled = false;
 
-    const refreshEnrollment = async () => {
+    const handlePostEnrollRedirect = async () => {
       const data = await fetchCourseBySlug(course.slug, true);
-      if (!data || cancelled) return;
+      if (!data || cancelled || !data.isEnrolled) return;
 
-      setIsEnrolled(data.isEnrolled);
+      setIsEnrolled(true);
       setEnrollment(data.enrollment);
 
-      if (data.isEnrolled) {
-        const { progress } = await fetchCourseProgress(course._id);
-        if (!cancelled) {
-          setLessonProgress(buildLessonProgressMap(progress));
-        }
-      } else if (!cancelled) {
-        setLessonProgress({});
-      }
-
-      if (enrolledQuery === "true" && data.isEnrolled) {
-        setSuccess("You are enrolled! Redirecting to your first lesson…");
-        const targetLesson = getFirstLesson(data.curriculum);
-        const target = targetLesson
-          ? `/courses/${course.slug}/learn/${targetLesson.slug}`
-          : `/courses/${course.slug}`;
-        router.replace(getLmsUrl(target));
-      }
+      setSuccess("You are enrolled! Redirecting to your first lesson…");
+      const targetLesson = getFirstLesson(data.curriculum);
+      const target = targetLesson
+        ? `/courses/${course.slug}/learn/${targetLesson.slug}`
+        : `/courses/${course.slug}`;
+      router.replace(getLmsUrl(target));
     };
 
-    refreshEnrollment();
+    void handlePostEnrollRedirect();
 
     return () => {
       cancelled = true;
     };
-  }, [course._id, course.slug, enrolledQuery, isAuthenticated, router]);
+  }, [course.slug, enrolledQuery, isAuthenticated, router]);
 
   useEffect(() => {
     if (enrollContactHandled.current) return;
@@ -483,7 +507,7 @@ export default function CourseDetailClient({
 
       enrollContactHandled.current = true;
 
-      if (data.isEnrolled || data.isStaff) {
+      if (data.isEnrolled || data.isStaff || canPreviewLmsContent(user)) {
         const target = lessonSlug
           ? `/courses/${course.slug}/learn/${lessonSlug}`
           : `/courses/${course.slug}`;
@@ -561,14 +585,17 @@ export default function CourseDetailClient({
   };
 
   const canOpenLesson = (lesson: Lesson) => {
-    if (isStaff) return true;
+    if (effectiveIsStaff) return true;
     if (lesson.isPreview) return true;
     if (isEnrolled && !lesson.locked) return true;
     return false;
   };
 
   const isSequentiallyLockedLesson = (lesson: Lesson) =>
-    !isStaff && isEnrolled && Boolean(lesson.locked) && !lesson.isPreview;
+    !effectiveIsStaff &&
+    isEnrolled &&
+    Boolean(lesson.locked) &&
+    !lesson.isPreview;
 
   const handleLockedLessonClick = (lesson: Lesson) => {
     if (isSequentiallyLockedLesson(lesson)) return;
@@ -578,7 +605,7 @@ export default function CourseDetailClient({
       return;
     }
 
-    if (isEnrolled || isStaff) {
+    if (isEnrolled || effectiveIsStaff) {
       router.push(`/courses/${course.slug}/learn/${lesson.slug}`);
       return;
     }
@@ -586,11 +613,19 @@ export default function CourseDetailClient({
     openCourseContactWhatsApp(whatsAppHref);
   };
 
+  const adminPreviewHref =
+    effectiveIsStaff && !isEnrolled
+      ? firstLesson
+        ? `/courses/${course.slug}/learn/${firstLesson.slug}`
+        : `/courses/${course.slug}`
+      : null;
+
   const enrollmentCardProps = {
     isEnrolled,
     enrollment,
     continueHref,
     continueLesson,
+    adminPreviewHref,
     priceDisplay,
     salePrice,
     loading,
@@ -600,6 +635,7 @@ export default function CourseDetailClient({
     lessonCount,
     totalDurationMinutes: course.totalDurationMinutes,
     whatsAppHref,
+    gmailHref,
   };
 
   return (
@@ -622,9 +658,10 @@ export default function CourseDetailClient({
           </span>
         </nav>
 
-        {isStaff && (
+        {effectiveIsStaff && (
           <div className="mb-6 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
-            Admin preview — unpublished content may be visible.
+            Admin preview — unpublished content may be visible. Progress is not
+            saved unless you are enrolled.
           </div>
         )}
 
@@ -1151,7 +1188,10 @@ export default function CourseDetailClient({
                 `Enroll · ${formatUsd(salePrice)}`
               )}
             </Button>
-            <WhatsAppContactButton href={whatsAppHref} />
+            <CourseEnrollmentContactButtons
+              whatsAppHref={whatsAppHref}
+              gmailHref={gmailHref}
+            />
           </div>
         )}
       </div>

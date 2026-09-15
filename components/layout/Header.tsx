@@ -77,7 +77,7 @@ export default function Header() {
         window.location.reload();
         return;
       }
-      await refresh();
+      await refresh({ force: true });
     } finally {
       setLoggingOut(false);
     }

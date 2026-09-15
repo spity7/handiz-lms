@@ -24,6 +24,8 @@ type Props = {
   currentLessonSlug: string;
   progressMap: Record<string, boolean>;
   enrollmentProgress?: number;
+  /** Staff / admin preview — show all lessons as navigable in the sidebar. */
+  isStaff?: boolean;
   /** Awaited before client navigation so video position can be saved. */
   onLessonLinkClick?: (lessonSlug: string) => void | Promise<void>;
 };
@@ -111,6 +113,7 @@ export default function CurriculumSidebar({
   currentLessonSlug,
   progressMap,
   enrollmentProgress = 0,
+  isStaff = false,
   onLessonLinkClick,
 }: Props) {
   const activeLessonRef = useRef<HTMLAnchorElement>(null);
@@ -276,9 +279,8 @@ export default function CurriculumSidebar({
                             sequentialLockIds.has(lesson._id);
                           const locked =
                             !lesson.isPreview &&
-                            (sequentialLockedNow ||
-                              (Boolean(lesson.locked) &&
-                                !lesson.sequentiallyLocked));
+                            !isStaff &&
+                            sequentialLockedNow;
                           const duration = getLessonDurationLabel(lesson);
                           const lessonNumber =
                             globalLessonNumbers.get(lesson._id) ?? 0;

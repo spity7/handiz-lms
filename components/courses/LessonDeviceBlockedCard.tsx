@@ -4,10 +4,14 @@ import { useMemo } from "react";
 import Link from "next/link";
 import { Shield } from "lucide-react";
 import { useAuthUser } from "@/hooks/useAuthUser";
-import { buildLessonDeviceSupportWhatsAppUrl } from "@/lib/courseContact";
+import {
+  buildLessonDeviceSupportGmailUrl,
+  buildLessonDeviceSupportWhatsAppUrl,
+} from "@/lib/courseContact";
 import type { LessonDeviceErrorCode } from "@/lib/courses";
 import { getLmsUrl } from "@/lib/urls";
 import { Button, Card } from "@/components/ui";
+import GmailContactButton from "@/components/courses/GmailContactButton";
 import WhatsAppContactButton from "@/components/courses/WhatsAppContactButton";
 
 type Props = {
@@ -30,22 +34,32 @@ export default function LessonDeviceBlockedCard({
   const { user } = useAuthUser();
   const isBlocked = errorcode === "LESSON_ACCESS_BLOCKED";
 
-  const whatsAppHref = useMemo(() => {
+  const contactOptions = useMemo(() => {
     const userLabel = user
       ? [user.firstname, user.lastname].filter(Boolean).join(" ") ||
         user.email ||
         user.username
       : undefined;
 
-    return buildLessonDeviceSupportWhatsAppUrl({
+    return {
       courseTitle,
       courseId,
       lessonSlug,
       userId: user?._id,
       userLabel,
-      reason: isBlocked ? "access_blocked" : "device_elsewhere",
-    });
+      reason: (isBlocked ? "access_blocked" : "device_elsewhere") as const,
+    };
   }, [courseId, courseTitle, isBlocked, lessonSlug, user]);
+
+  const whatsAppHref = useMemo(
+    () => buildLessonDeviceSupportWhatsAppUrl(contactOptions),
+    [contactOptions],
+  );
+
+  const gmailHref = useMemo(
+    () => buildLessonDeviceSupportGmailUrl(contactOptions),
+    [contactOptions],
+  );
 
   return (
     <div className="mx-auto max-w-lg px-4 py-16 text-center">
@@ -63,14 +77,22 @@ export default function LessonDeviceBlockedCard({
           Course playback is limited to one device per account. Contact support
           if you need to change your registered device.
         </p>
-        <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+        <div className="flex flex-col gap-2">
           <WhatsAppContactButton
             href={whatsAppHref}
-            label="Contact support"
-            className="sm:w-auto"
+            label="Contact support on WhatsApp"
+            className="sm:mx-auto sm:max-w-sm"
           />
-          <Link href={getLmsUrl(`/courses/${courseSlug}`)}>
-            <Button variant="outline" className="w-full sm:w-auto">
+          <GmailContactButton
+            href={gmailHref}
+            label="Contact support on Gmail"
+            className="sm:mx-auto sm:max-w-sm"
+          />
+          <Link
+            href={getLmsUrl(`/courses/${courseSlug}`)}
+            className="sm:mx-auto sm:max-w-sm"
+          >
+            <Button variant="outline" className="w-full">
               Back to course
             </Button>
           </Link>

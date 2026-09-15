@@ -4,6 +4,36 @@ import { getDashboardUrl } from "@/lib/urls";
 export const WHATSAPP_COURSE_CONTACT_NUMBER =
   process.env.NEXT_PUBLIC_WHATSAPP_NUMBER?.replace(/\D/g, "") || "96171601751";
 
+export const COURSE_CONTACT_EMAIL =
+  process.env.NEXT_PUBLIC_COURSE_CONTACT_EMAIL?.trim() || "info@handiz.org";
+
+export type CourseInterestContactOptions = {
+  courseTitle: string;
+  courseId: string;
+  userId?: string;
+  userLabel?: string;
+};
+
+function buildCourseInterestMessage(options: CourseInterestContactOptions) {
+  const enrollLink = buildAdminEnrollmentLink({
+    courseId: options.courseId,
+    userId: options.userId,
+  });
+
+  const lines = [`Hi, I'm interested in the course "${options.courseTitle}".`];
+  if (options.userLabel) {
+    lines.push(`Student: ${options.userLabel}`);
+  }
+  lines.push("");
+  lines.push("Enroll Link:");
+  lines.push(enrollLink);
+
+  return {
+    subject: `Course enrollment: ${options.courseTitle}`,
+    body: lines.join("\n"),
+  };
+}
+
 export function buildAdminEnrollmentLink(params: {
   courseId: string;
   userId?: string;
@@ -21,37 +51,40 @@ export function buildAdminLessonDeviceLink(params: { userId: string }) {
   return getDashboardUrl(`/ecommerce/courses/lesson-devices?${qs.toString()}`);
 }
 
-export function buildCourseInterestWhatsAppUrl(options: {
-  courseTitle: string;
-  courseId: string;
-  userId?: string;
-  userLabel?: string;
-}) {
-  const enrollLink = buildAdminEnrollmentLink({
-    courseId: options.courseId,
-    userId: options.userId,
-  });
-
-  const lines = [`Hi, I'm interested in the course "${options.courseTitle}".`];
-  if (options.userLabel) {
-    lines.push(`Student: ${options.userLabel}`);
-  }
-  lines.push("");
-  lines.push("Enroll Link:");
-  lines.push(enrollLink);
-
-  const text = lines.join("\n");
-  return `https://wa.me/${WHATSAPP_COURSE_CONTACT_NUMBER}?text=${encodeURIComponent(text)}`;
+export function buildCourseInterestWhatsAppUrl(
+  options: CourseInterestContactOptions,
+) {
+  const { body } = buildCourseInterestMessage(options);
+  return `https://wa.me/${WHATSAPP_COURSE_CONTACT_NUMBER}?text=${encodeURIComponent(body)}`;
 }
 
-export function buildLessonDeviceSupportWhatsAppUrl(options: {
+/** Opens Gmail compose in the browser (same pre-filled message as WhatsApp). */
+export function buildCourseInterestGmailUrl(
+  options: CourseInterestContactOptions,
+) {
+  const { subject, body } = buildCourseInterestMessage(options);
+  const params = new URLSearchParams({
+    view: "cm",
+    fs: "1",
+    to: COURSE_CONTACT_EMAIL,
+    su: subject,
+    body,
+  });
+  return `https://mail.google.com/mail/?${params.toString()}`;
+}
+
+export type LessonDeviceSupportContactOptions = {
   courseTitle: string;
   courseId: string;
   lessonSlug?: string;
   userId?: string;
   userLabel?: string;
   reason: "device_elsewhere" | "access_blocked";
-}) {
+};
+
+function buildLessonDeviceSupportMessage(
+  options: LessonDeviceSupportContactOptions,
+) {
   const adminLink = options.userId
     ? buildAdminLessonDeviceLink({ userId: options.userId })
     : undefined;
@@ -83,6 +116,31 @@ export function buildLessonDeviceSupportWhatsAppUrl(options: {
     lines.push(adminLink);
   }
 
-  const text = lines.join("\n");
-  return `https://wa.me/${WHATSAPP_COURSE_CONTACT_NUMBER}?text=${encodeURIComponent(text)}`;
+  const subject =
+    options.reason === "access_blocked"
+      ? `Lesson access suspended: ${options.courseTitle}`
+      : `Lesson device change: ${options.courseTitle}`;
+
+  return { subject, body: lines.join("\n") };
+}
+
+export function buildLessonDeviceSupportWhatsAppUrl(
+  options: LessonDeviceSupportContactOptions,
+) {
+  const { body } = buildLessonDeviceSupportMessage(options);
+  return `https://wa.me/${WHATSAPP_COURSE_CONTACT_NUMBER}?text=${encodeURIComponent(body)}`;
+}
+
+export function buildLessonDeviceSupportGmailUrl(
+  options: LessonDeviceSupportContactOptions,
+) {
+  const { subject, body } = buildLessonDeviceSupportMessage(options);
+  const params = new URLSearchParams({
+    view: "cm",
+    fs: "1",
+    to: COURSE_CONTACT_EMAIL,
+    su: subject,
+    body,
+  });
+  return `https://mail.google.com/mail/?${params.toString()}`;
 }

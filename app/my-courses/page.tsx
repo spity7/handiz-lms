@@ -1,8 +1,4 @@
 import MyCoursesPageClient from "@/components/courses/MyCoursesPageClient";
-import {
-  fetchCertificateServer,
-  fetchMyEnrollmentsServer,
-} from "@/lib/coursesServer";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -14,12 +10,6 @@ type Props = { searchParams: Promise<{ certificate?: string }> };
 
 export default async function MyCoursesPage({ searchParams }: Props) {
   const { certificate: certEnrollmentId } = await searchParams;
-  const [enrollments, certificate] = await Promise.all([
-    fetchMyEnrollmentsServer(),
-    certEnrollmentId
-      ? fetchCertificateServer(certEnrollmentId)
-      : Promise.resolve(null),
-  ]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -32,11 +22,7 @@ export default async function MyCoursesPage({ searchParams }: Props) {
         </p>
       </div>
 
-      <MyCoursesPageClient
-        initialEnrollments={enrollments}
-        initialCertificate={certificate}
-        certificateEnrollmentId={certEnrollmentId}
-      />
+      <MyCoursesPageClient certificateEnrollmentId={certEnrollmentId} />
     </div>
   );
 }

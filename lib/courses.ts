@@ -1,4 +1,10 @@
 import type { Course, CourseModule, Enrollment, Lesson } from "@/types/course";
+import {
+  readCachedEnrollments,
+  writeCachedEnrollments,
+  readCachedCoursePayload,
+  writeCachedCoursePayload,
+} from "@/lib/lmsSessionCache";
 import { getSignInUrl } from "@/lib/urls";
 
 const API_BASE_URL =
@@ -8,6 +14,14 @@ const fetchOpts = (credentials = false): RequestInit => ({
   cache: "no-store",
   ...(credentials ? { credentials: "include" as RequestCredentials } : {}),
 });
+
+/** All courses for admin preview (includes draft / unpublished). */
+export async function fetchAdminPreviewCourses(): Promise<Course[]> {
+  const res = await fetch(`${API_BASE_URL}courses?admin=true`, fetchOpts(true));
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.courses || []) as Course[];
+}
 
 export async function fetchCourses(params?: {
   tag?: string;
@@ -31,19 +45,46 @@ export async function fetchCourses(params?: {
   return data.courses || [];
 }
 
+export type CourseBySlugPayload = {
+  course: Course;
+  curriculum: CourseModule[];
+  enrollment: Enrollment | null;
+  isEnrolled: boolean;
+  isStaff?: boolean;
+};
+
+const inflightCourseBySlug = new Map<
+  string,
+  Promise<CourseBySlugPayload | null>
+>();
+let inflightEnrollments: Promise<Enrollment[]> | null = null;
+
 export async function fetchCourseBySlug(slug: string, withAuth = false) {
-  const res = await fetch(
-    `${API_BASE_URL}courses/slug/${slug}`,
-    fetchOpts(withAuth),
-  );
-  if (!res.ok) return null;
-  return res.json() as Promise<{
-    course: Course;
-    curriculum: CourseModule[];
-    enrollment: Enrollment | null;
-    isEnrolled: boolean;
-    isStaff?: boolean;
-  }>;
+  const cacheKey = `${slug}:${withAuth ? "auth" : "public"}`;
+  const inflight = inflightCourseBySlug.get(cacheKey);
+  if (inflight) return inflight;
+
+  const request = (async () => {
+    const res = await fetch(
+      `${API_BASE_URL}courses/slug/${slug}`,
+      fetchOpts(withAuth),
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as CourseBySlugPayload;
+    if (withAuth) writeCachedCoursePayload(slug, data);
+    return data;
+  })();
+
+  inflightCourseBySlug.set(cacheKey, request);
+  try {
+    return await request;
+  } finally {
+    inflightCourseBySlug.delete(cacheKey);
+  }
+}
+
+export function getCachedCourseBySlug(slug: string) {
+  return readCachedCoursePayload<CourseBySlugPayload>(slug);
 }
 
 export type LessonFetchSuccess = {
@@ -143,10 +184,33 @@ export async function createCheckout(courseId: string) {
 }
 
 export async function fetchMyEnrollments(): Promise<Enrollment[]> {
-  const res = await fetch(`${API_BASE_URL}enrollments/me`, fetchOpts(true));
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.enrollments || [];
+  if (inflightEnrollments) return inflightEnrollments;
+
+  inflightEnrollments = (async () => {
+    const res = await fetch(`${API_BASE_URL}enrollments/me`, fetchOpts(true));
+    if (!res.ok) return [];
+    const data = await res.json();
+    const enrollments = (data.enrollments || []) as Enrollment[];
+    writeCachedEnrollments(enrollments);
+    return enrollments;
+  })();
+
+  try {
+    return await inflightEnrollments;
+  } finally {
+    inflightEnrollments = null;
+  }
+}
+
+export function getCachedMyEnrollments(): Enrollment[] | null {
+  return readCachedEnrollments();
+}
+
+/** Warm enrollments while auth resolves (e.g. from root layout). */
+export function prefetchMyEnrollments() {
+  if (typeof window === "undefined") return;
+  if (readCachedEnrollments()?.length) return;
+  void fetchMyEnrollments();
 }
 
 export async function fetchCourseProgress(courseId: string) {
@@ -162,6 +226,7 @@ export async function fetchCourseProgress(courseId: string) {
         lastPosition?: number;
         watchedSeconds?: number;
       }[],
+      enrollment: null as { progressPercent?: number } | null,
     };
   const data = await res.json();
   return {
@@ -171,7 +236,48 @@ export async function fetchCourseProgress(courseId: string) {
       lastPosition?: number;
       watchedSeconds?: number;
     }[],
+    enrollment: (data.enrollment || null) as {
+      progressPercent?: number;
+    } | null,
   };
+}
+
+export function buildInitialLessonProgressMap(
+  progressList: {
+    lessonId: string;
+    completed: boolean;
+    lastPosition?: number;
+    watchedSeconds?: number;
+  }[],
+): Record<string, { completed: boolean; lastPosition: number }> {
+  const map: Record<string, { completed: boolean; lastPosition: number }> = {};
+  for (const row of progressList) {
+    map[String(row.lessonId)] = {
+      completed: Boolean(row.completed),
+      lastPosition: Math.max(
+        Number(row.lastPosition) || 0,
+        Number(row.watchedSeconds) || 0,
+      ),
+    };
+  }
+  return map;
+}
+
+export function getLessonResumeSeconds(
+  progressList: {
+    lessonId: string;
+    completed: boolean;
+    lastPosition?: number;
+    watchedSeconds?: number;
+  }[],
+  lessonId: string,
+): number {
+  const row = progressList.find((p) => String(p.lessonId) === String(lessonId));
+  if (!row || row.completed) return 0;
+  return Math.max(
+    Number(row.lastPosition) || 0,
+    Number(row.watchedSeconds) || 0,
+  );
 }
 
 export function buildLessonProgressMap(

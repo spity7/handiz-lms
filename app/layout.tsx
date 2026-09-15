@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import GoogleAnalytics from "@/components/common/GoogleAnalytics";
 import Header from "@/components/layout/Header";
 import ConditionalFooter from "@/components/layout/ConditionalFooter";
+import { AuthProvider } from "@/context/AuthProvider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -35,10 +36,12 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col" suppressHydrationWarning>
-        <GoogleAnalytics />
-        <Header />
-        <main className="flex-1">{children}</main>
-        <ConditionalFooter />
+        <AuthProvider>
+          <GoogleAnalytics />
+          <Header />
+          <main className="flex-1">{children}</main>
+          <ConditionalFooter />
+        </AuthProvider>
       </body>
     </html>
   );
