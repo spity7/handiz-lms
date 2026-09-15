@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -18,6 +18,7 @@ import type { CourseModule } from "@/types/course";
 import CurriculumSidebar from "@/components/courses/CurriculumSidebar";
 import VdoCipherPlayer from "@/components/courses/VdoCipherPlayer";
 import {
+  fetchCourseProgress,
   fetchLesson,
   refreshLessonPlaybackOtp,
   getAdjacentLessons,
@@ -139,14 +140,74 @@ export default function CoursePlayer({
     score: number;
   } | null>(null);
   const [navigating, setNavigating] = useState(false);
+  const videoPlaybackRef = useRef({ watchedSeconds: 0, lastPosition: 0 });
+  const [resumePositionByLesson, setResumePositionByLesson] = useState<
+    Record<string, number>
+  >(() => {
+    const map: Record<string, number> = {};
+    for (const [id, entry] of Object.entries(initialProgress)) {
+      if (!entry.completed && entry.lastPosition > 0) {
+        map[id] = entry.lastPosition;
+      }
+    }
+    return map;
+  });
 
   const lessonPosition = getLessonPosition(curriculum, lessonSlug);
+
+  const mergeProgressPositions = useCallback(
+    (
+      progressList: {
+        lessonId: string;
+        completed: boolean;
+        lastPosition?: number;
+        watchedSeconds?: number;
+      }[],
+    ) => {
+      setResumePositionByLesson((prev) => {
+        const next = { ...prev };
+        for (const row of progressList) {
+          const id = String(row.lessonId);
+          if (row.completed) {
+            delete next[id];
+            continue;
+          }
+          const pos = Math.max(
+            Number(row.lastPosition) || 0,
+            Number(row.watchedSeconds) || 0,
+          );
+          if (pos > 0) {
+            next[id] = Math.max(next[id] ?? 0, pos);
+          }
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    videoPlaybackRef.current = { watchedSeconds: 0, lastPosition: 0 };
+    const lessonId = lessonPosition.lesson?._id;
+    const saved = lessonId ? resumePositionByLesson[lessonId] : 0;
+    if (saved > 0) {
+      videoPlaybackRef.current = {
+        watchedSeconds: saved,
+        lastPosition: saved,
+      };
+    }
+  }, [lessonSlug, lessonPosition.lesson?._id, resumePositionByLesson]);
 
   const loadLesson = useCallback(async () => {
     setLoading(true);
     setQuizResult(null);
     setQuizAnswers({});
-    const data = await fetchLesson(courseSlug, lessonSlug);
+    const [data, progressPayload] = await Promise.all([
+      fetchLesson(courseSlug, lessonSlug),
+      fetchCourseProgress(courseId),
+    ]);
+
+    mergeProgressPositions(progressPayload.progress);
     setLessonData(data);
     setLoading(false);
 
@@ -157,7 +218,7 @@ export default function CoursePlayer({
     ) {
       setEnrollmentProgress(data.enrollment.progressPercent);
     }
-  }, [courseSlug, lessonSlug]);
+  }, [courseSlug, lessonSlug, courseId, mergeProgressPositions]);
 
   useEffect(() => {
     loadLesson();
@@ -167,15 +228,39 @@ export default function CoursePlayer({
     (
       result: {
         enrollmentProgress?: number;
-        lessonProgress?: { completed?: boolean };
+        lessonProgress?: {
+          completed?: boolean;
+          lastPosition?: number;
+          watchedSeconds?: number;
+        };
       } | null,
       lessonId?: string,
     ) => {
       if (result?.enrollmentProgress !== undefined) {
         setEnrollmentProgress(result.enrollmentProgress);
       }
-      if (result?.lessonProgress?.completed && lessonId) {
-        setProgressMap((prev) => ({ ...prev, [lessonId]: true }));
+      if (lessonId && result?.lessonProgress) {
+        const lp = result.lessonProgress;
+        if (lp.completed) {
+          setProgressMap((prev) => ({ ...prev, [lessonId]: true }));
+          setResumePositionByLesson((prev) => {
+            if (!prev[lessonId]) return prev;
+            const next = { ...prev };
+            delete next[lessonId];
+            return next;
+          });
+        } else {
+          const pos = Math.max(
+            Number(lp.lastPosition) || 0,
+            Number(lp.watchedSeconds) || 0,
+          );
+          if (pos > 0) {
+            setResumePositionByLesson((prev) => ({
+              ...prev,
+              [lessonId]: Math.max(prev[lessonId] ?? 0, pos),
+            }));
+          }
+        }
       }
     },
     [],
@@ -185,15 +270,52 @@ export default function CoursePlayer({
     async (markComplete = false) => {
       if (!lessonData || isLessonError(lessonData) || !lessonData.lesson)
         return null;
-      const result = await updateLessonProgress(lessonData.lesson._id, {
-        watchedSeconds: 0,
-        lastPosition: 0,
-        markComplete,
-      });
-      applyProgressResult(result, lessonData.lesson._id);
+
+      const { lesson } = lessonData;
+      const payload: {
+        watchedSeconds?: number;
+        lastPosition?: number;
+        markComplete?: boolean;
+      } = {};
+
+      if (markComplete) {
+        payload.markComplete = true;
+      }
+
+      if (lesson.type === "video") {
+        const { watchedSeconds, lastPosition } = videoPlaybackRef.current;
+        if (watchedSeconds > 0) {
+          payload.watchedSeconds = watchedSeconds;
+        }
+        if (lastPosition > 0) {
+          payload.lastPosition = lastPosition;
+        }
+      }
+
+      if (!markComplete && Object.keys(payload).length === 0) {
+        return null;
+      }
+
+      const result = await updateLessonProgress(lesson._id, payload);
+      applyProgressResult(result, lesson._id);
       return result;
     },
     [lessonData, applyProgressResult],
+  );
+
+  const navigateToLesson = useCallback(
+    async (targetSlug: string) => {
+      if (targetSlug === lessonSlug) return;
+      if (navigating) return;
+      setNavigating(true);
+      try {
+        await saveProgress(false);
+        router.push(`/courses/${courseSlug}/learn/${targetSlug}`);
+      } finally {
+        setNavigating(false);
+      }
+    },
+    [courseSlug, lessonSlug, navigating, router, saveProgress],
   );
 
   const handleQuizSubmit = async () => {
@@ -229,7 +351,11 @@ export default function CoursePlayer({
     try {
       if (markComplete) {
         await saveProgress(true);
-      } else if (lessonData && !isLessonError(lessonData)) {
+      } else if (
+        lessonData &&
+        !isLessonError(lessonData) &&
+        lessonData.lesson.type === "video"
+      ) {
         await saveProgress(false);
       }
       router.push(`/courses/${courseSlug}/learn/${targetSlug}`);
@@ -318,6 +444,7 @@ export default function CoursePlayer({
     currentLessonSlug: lessonSlug,
     progressMap,
     enrollmentProgress,
+    onLessonLinkClick: navigateToLesson,
   };
 
   return (
@@ -396,7 +523,10 @@ export default function CoursePlayer({
             <div className="flex-1 overflow-y-auto p-4">
               <CurriculumSidebar
                 {...sidebarProps}
-                onNavigate={() => setSidebarOpen(false)}
+                onLessonLinkClick={async (targetSlug) => {
+                  await navigateToLesson(targetSlug);
+                  setSidebarOpen(false);
+                }}
               />
             </div>
           </div>
@@ -439,9 +569,15 @@ export default function CoursePlayer({
             {lesson.type === "video" && playback && (
               <>
                 <VdoCipherPlayer
+                  key={lesson._id}
                   otp={playback.otp}
                   playbackInfo={playback.playbackInfo}
                   ttlSeconds={playback.ttlSeconds}
+                  initialResumeSeconds={
+                    progressMap[lesson._id]
+                      ? 0
+                      : resumePositionByLesson[lesson._id] || 0
+                  }
                   onRefreshPlayback={async () => {
                     const refreshed = await refreshLessonPlaybackOtp(
                       courseSlug,
@@ -450,6 +586,13 @@ export default function CoursePlayer({
                     return refreshed?.playback ?? null;
                   }}
                   onProgress={(seconds) => {
+                    videoPlaybackRef.current = {
+                      watchedSeconds: Math.max(
+                        videoPlaybackRef.current.watchedSeconds,
+                        seconds,
+                      ),
+                      lastPosition: seconds,
+                    };
                     void updateLessonProgress(lesson._id, {
                       watchedSeconds: seconds,
                       lastPosition: seconds,

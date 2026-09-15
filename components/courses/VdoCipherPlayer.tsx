@@ -66,6 +66,54 @@ async function getPlayerInstance(
   return null;
 }
 
+async function seekVideoTo(
+  player: VdoPlayerInstance,
+  seconds: number,
+): Promise<boolean> {
+  try {
+    (player.video as unknown as { currentTime: number }).currentTime = seconds;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function attachResumeWhenReady(
+  player: VdoPlayerInstance,
+  seconds: number,
+  onSeeked: (sec: number) => void,
+) {
+  if (seconds <= 0) return () => {};
+
+  let seekApplied = false;
+  const target = Math.max(0, Math.floor(seconds));
+
+  const trySeek = () => {
+    if (seekApplied) return;
+    void seekVideoTo(player, target).then((ok) => {
+      if (ok) {
+        seekApplied = true;
+        onSeeked(target);
+      }
+    });
+  };
+
+  const events = ["loadedmetadata", "loadeddata", "canplay"] as const;
+  const handlers = events.map((event) => {
+    const handler = () => trySeek();
+    player.video.addEventListener(event, handler);
+    return { event, handler };
+  });
+
+  trySeek();
+
+  return () => {
+    for (const { event, handler } of handlers) {
+      player.video.removeEventListener(event, handler);
+    }
+  };
+}
+
 type PlaybackTokens = {
   otp: string;
   playbackInfo: string;
@@ -75,6 +123,7 @@ type Props = {
   otp: string;
   playbackInfo: string;
   ttlSeconds?: number;
+  initialResumeSeconds?: number;
   onRefreshPlayback?: () => Promise<PlaybackTokens | null>;
   onProgress?: (seconds: number) => void;
   onComplete?: () => void;
@@ -84,6 +133,7 @@ export default function VdoCipherPlayer({
   otp,
   playbackInfo,
   ttlSeconds = 300,
+  initialResumeSeconds = 0,
   onRefreshPlayback,
   onProgress,
   onComplete,
@@ -123,7 +173,6 @@ export default function VdoCipherPlayer({
               resumeAtRef.current = Math.floor(player.video.currentTime || 0);
             }
           } catch {
-            /* keep last reported progress as fallback */
             resumeAtRef.current = lastReported.current;
           }
         }
@@ -139,26 +188,29 @@ export default function VdoCipherPlayer({
   }, [ttlSeconds]);
 
   useEffect(() => {
-    lastReported.current = 0;
+    const resumeAt = Math.max(0, Math.floor(initialResumeSeconds));
+    resumeAtRef.current = resumeAt;
+    lastReported.current = resumeAt > 0 ? Math.max(0, resumeAt - 6) : 0;
+
     const iframe = iframeRef.current;
     if (!iframe) return;
 
     let cancelled = false;
-    let cleanup: (() => void) | undefined;
+    let cleanupProgress: (() => void) | undefined;
+    let cleanupResume: (() => void) | undefined;
 
     const setupPlayer = async () => {
       const player = await getPlayerInstance(iframe);
       if (cancelled || !player) return;
 
-      const resumeAt = resumeAtRef.current;
-      if (resumeAt > 0) {
-        try {
-          player.video.currentTime = resumeAt;
-        } catch {
-          /* seek when supported */
-        }
-        resumeAtRef.current = 0;
-      }
+      cleanupResume?.();
+      cleanupResume = attachResumeWhenReady(
+        player,
+        resumeAtRef.current,
+        (sec) => {
+          lastReported.current = Math.max(0, sec - 1);
+        },
+      );
 
       const handleTimeUpdate = () => {
         const sec = Math.floor(player.video.currentTime || 0);
@@ -175,7 +227,7 @@ export default function VdoCipherPlayer({
       player.video.addEventListener("timeupdate", handleTimeUpdate);
       player.video.addEventListener("ended", handleEnded);
 
-      cleanup = () => {
+      cleanupProgress = () => {
         player.video.removeEventListener("timeupdate", handleTimeUpdate);
         player.video.removeEventListener("ended", handleEnded);
       };
@@ -193,9 +245,10 @@ export default function VdoCipherPlayer({
     return () => {
       cancelled = true;
       iframe.removeEventListener("load", handleIframeLoad);
-      cleanup?.();
+      cleanupResume?.();
+      cleanupProgress?.();
     };
-  }, [tokens.otp, tokens.playbackInfo]);
+  }, [tokens.otp, tokens.playbackInfo, initialResumeSeconds]);
 
   const src = `https://player.vdocipher.com/v2/?otp=${encodeURIComponent(tokens.otp)}&playbackInfo=${encodeURIComponent(tokens.playbackInfo)}`;
 

@@ -155,12 +155,21 @@ export async function fetchCourseProgress(courseId: string) {
     fetchOpts(true),
   );
   if (!res.ok)
-    return { progress: [] as { lessonId: string; completed: boolean }[] };
+    return {
+      progress: [] as {
+        lessonId: string;
+        completed: boolean;
+        lastPosition?: number;
+        watchedSeconds?: number;
+      }[],
+    };
   const data = await res.json();
   return {
     progress: (data.progress || []) as {
       lessonId: string;
       completed: boolean;
+      lastPosition?: number;
+      watchedSeconds?: number;
     }[],
   };
 }

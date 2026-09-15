@@ -20,6 +20,26 @@ export function getLessonPosition(
   };
 }
 
+/** Lesson IDs blocked until all prior published lessons are completed (matches API). */
+export function getSequentiallyLockedLessonIds(
+  curriculum: CourseModule[],
+  progressMap: Record<string, boolean>,
+): Set<string> {
+  const locked = new Set<string>();
+  let priorLessonsComplete = true;
+
+  for (const lesson of flattenLessons(curriculum)) {
+    if (!priorLessonsComplete && !lesson.isPreview) {
+      locked.add(lesson._id);
+    }
+    if (!progressMap[lesson._id]) {
+      priorLessonsComplete = false;
+    }
+  }
+
+  return locked;
+}
+
 export function getModuleProgress(
   mod: CourseModule,
   progressMap: Record<string, boolean>,
@@ -48,7 +68,10 @@ export function isGenericLessonTitle(title: string): boolean {
   return /^lesson\s*\d+\.?$/i.test(title.trim());
 }
 
-export function getLessonDisplayTitle(title: string, lessonNumber: number): string {
+export function getLessonDisplayTitle(
+  title: string,
+  lessonNumber: number,
+): string {
   if (isGenericLessonTitle(title)) {
     return `Lesson ${lessonNumber}`;
   }

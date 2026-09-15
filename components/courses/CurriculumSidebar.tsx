@@ -15,6 +15,7 @@ import {
   getLessonDisplayTitle,
   getLessonDurationLabel,
   getModuleProgress,
+  getSequentiallyLockedLessonIds,
 } from "@/lib/lessonUi";
 
 type Props = {
@@ -23,7 +24,8 @@ type Props = {
   currentLessonSlug: string;
   progressMap: Record<string, boolean>;
   enrollmentProgress?: number;
-  onNavigate?: () => void;
+  /** Awaited before client navigation so video position can be saved. */
+  onLessonLinkClick?: (lessonSlug: string) => void | Promise<void>;
 };
 
 function findModuleForLesson(
@@ -109,13 +111,18 @@ export default function CurriculumSidebar({
   currentLessonSlug,
   progressMap,
   enrollmentProgress = 0,
-  onNavigate,
+  onLessonLinkClick,
 }: Props) {
   const activeLessonRef = useRef<HTMLAnchorElement>(null);
 
   const visibleModules = useMemo(
     () => curriculum.filter((mod) => (mod.lessons || []).length > 0),
     [curriculum],
+  );
+
+  const sequentialLockIds = useMemo(
+    () => getSequentiallyLockedLessonIds(curriculum, progressMap),
+    [curriculum, progressMap],
   );
 
   const globalLessonNumbers = useMemo(
@@ -264,7 +271,14 @@ export default function CurriculumSidebar({
                         {(mod.lessons || []).map((lesson: Lesson) => {
                           const isActive = lesson.slug === currentLessonSlug;
                           const lessonCompleted = progressMap[lesson._id];
-                          const locked = lesson.locked && !lesson.isPreview;
+                          const sequentialLockedNow =
+                            !lesson.isPreview &&
+                            sequentialLockIds.has(lesson._id);
+                          const locked =
+                            !lesson.isPreview &&
+                            (sequentialLockedNow ||
+                              (Boolean(lesson.locked) &&
+                                !lesson.sequentiallyLocked));
                           const duration = getLessonDurationLabel(lesson);
                           const lessonNumber =
                             globalLessonNumbers.get(lesson._id) ?? 0;
@@ -296,7 +310,11 @@ export default function CurriculumSidebar({
                               <Link
                                 ref={isActive ? activeLessonRef : undefined}
                                 href={`/courses/${courseSlug}/learn/${lesson.slug}`}
-                                onClick={onNavigate}
+                                onClick={(event) => {
+                                  if (!onLessonLinkClick || isActive) return;
+                                  event.preventDefault();
+                                  void onLessonLinkClick(lesson.slug);
+                                }}
                                 aria-current={isActive ? "page" : undefined}
                                 className={[
                                   "group flex items-center gap-2 rounded-lg transition-colors",
