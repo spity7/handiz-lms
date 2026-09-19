@@ -10,19 +10,24 @@ try {
   apiOrigin = "";
 }
 
+const vdocipherOrigins = [
+  "https://player.vdocipher.com",
+  "https://*.vdocipher.com",
+];
+
 const contentSecurityPolicy = [
   "default-src 'self'",
   [
     "connect-src 'self'",
     apiOrigin,
-    "https://player.vdocipher.com",
+    ...vdocipherOrigins,
     "https://www.google-analytics.com",
     "https://www.googletagmanager.com",
     "https://region1.google-analytics.com",
   ]
     .filter(Boolean)
     .join(" "),
-  "frame-src 'self' https://player.vdocipher.com",
+  ["frame-src 'self'", ...vdocipherOrigins].join(" "),
   [
     "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
     "https://player.vdocipher.com",
@@ -31,7 +36,8 @@ const contentSecurityPolicy = [
   "img-src 'self' data: blob: https:",
   "style-src 'self' 'unsafe-inline'",
   "font-src 'self' data:",
-  "media-src 'self' https://player.vdocipher.com blob:",
+  ["media-src 'self' blob:", ...vdocipherOrigins].join(" "),
+  "worker-src 'self' blob:",
 ].join("; ");
 
 const nextConfig: NextConfig = {

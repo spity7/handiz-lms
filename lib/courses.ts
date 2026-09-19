@@ -115,32 +115,47 @@ export type LessonFetchError = {
 
 export type LessonFetchResult = LessonFetchSuccess | LessonFetchError | null;
 
+const inflightLessonBySlug = new Map<string, Promise<LessonFetchResult>>();
+
 export async function fetchLesson(
   slug: string,
   lessonSlug: string,
 ): Promise<LessonFetchResult> {
-  const res = await fetch(
-    `${API_BASE_URL}courses/${slug}/lessons/${lessonSlug}`,
-    fetchOpts(true),
-  );
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    const payload = data as {
-      message?: string;
-      errorcode?: LessonDeviceErrorCode;
-      encodingStatus?: string;
-    };
-    return {
-      error:
-        payload.message ||
-        (res.status === 403
-          ? "You do not have access to this lesson."
-          : "Lesson unavailable."),
-      errorcode: payload.errorcode,
-      encodingStatus: payload.encodingStatus,
-    };
+  const cacheKey = `${slug}:${lessonSlug}`;
+  const inflight = inflightLessonBySlug.get(cacheKey);
+  if (inflight) return inflight;
+
+  const request = (async (): Promise<LessonFetchResult> => {
+    const res = await fetch(
+      `${API_BASE_URL}courses/${slug}/lessons/${lessonSlug}`,
+      fetchOpts(true),
+    );
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const payload = data as {
+        message?: string;
+        errorcode?: LessonDeviceErrorCode;
+        encodingStatus?: string;
+      };
+      return {
+        error:
+          payload.message ||
+          (res.status === 403
+            ? "You do not have access to this lesson."
+            : "Lesson unavailable."),
+        errorcode: payload.errorcode,
+        encodingStatus: payload.encodingStatus,
+      };
+    }
+    return res.json() as Promise<LessonFetchSuccess>;
+  })();
+
+  inflightLessonBySlug.set(cacheKey, request);
+  try {
+    return await request;
+  } finally {
+    inflightLessonBySlug.delete(cacheKey);
   }
-  return res.json() as Promise<LessonFetchSuccess>;
 }
 
 export async function refreshLessonPlaybackOtp(
@@ -242,6 +257,18 @@ export async function fetchCourseProgress(courseId: string) {
   };
 }
 
+/** Playback resume point; falls back to watched high-water for older records. */
+export function lessonResumeSecondsFromRow(row: {
+  completed?: boolean;
+  lastPosition?: number;
+  watchedSeconds?: number;
+}): number {
+  if (row.completed) return 0;
+  const last = Number(row.lastPosition);
+  if (Number.isFinite(last) && last > 0) return last;
+  return Number(row.watchedSeconds) || 0;
+}
+
 export function buildInitialLessonProgressMap(
   progressList: {
     lessonId: string;
@@ -254,10 +281,7 @@ export function buildInitialLessonProgressMap(
   for (const row of progressList) {
     map[String(row.lessonId)] = {
       completed: Boolean(row.completed),
-      lastPosition: Math.max(
-        Number(row.lastPosition) || 0,
-        Number(row.watchedSeconds) || 0,
-      ),
+      lastPosition: lessonResumeSecondsFromRow(row),
     };
   }
   return map;
@@ -273,11 +297,8 @@ export function getLessonResumeSeconds(
   lessonId: string,
 ): number {
   const row = progressList.find((p) => String(p.lessonId) === String(lessonId));
-  if (!row || row.completed) return 0;
-  return Math.max(
-    Number(row.lastPosition) || 0,
-    Number(row.watchedSeconds) || 0,
-  );
+  if (!row) return 0;
+  return lessonResumeSecondsFromRow(row);
 }
 
 export function buildLessonProgressMap(

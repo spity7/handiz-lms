@@ -119,13 +119,18 @@ type PlaybackTokens = {
   playbackInfo: string;
 };
 
+export type VdoCipherProgressMeta = {
+  /** Save to server immediately (seek, pause, teardown). */
+  immediate?: boolean;
+};
+
 type Props = {
   otp: string;
   playbackInfo: string;
   ttlSeconds?: number;
   initialResumeSeconds?: number;
   onRefreshPlayback?: () => Promise<PlaybackTokens | null>;
-  onProgress?: (seconds: number) => void;
+  onProgress?: (seconds: number, meta?: VdoCipherProgressMeta) => void;
   onComplete?: () => void;
 };
 
@@ -141,6 +146,9 @@ export default function VdoCipherPlayer({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const lastReported = useRef(0);
   const resumeAtRef = useRef(0);
+  /** Set before OTP token swap so reload resumes at current time, not stale props. */
+  const otpReloadResumeRef = useRef<number | null>(null);
+  const initialResumePropRef = useRef(initialResumeSeconds);
   const onProgressRef = useRef(onProgress);
   const onCompleteRef = useRef(onComplete);
   const onRefreshRef = useRef(onRefreshPlayback);
@@ -148,6 +156,10 @@ export default function VdoCipherPlayer({
     otp,
     playbackInfo,
   });
+
+  useEffect(() => {
+    initialResumePropRef.current = initialResumeSeconds;
+  }, [initialResumeSeconds]);
 
   useEffect(() => {
     onProgressRef.current = onProgress;
@@ -170,10 +182,13 @@ export default function VdoCipherPlayer({
           try {
             const player = await getPlayerInstance(iframe);
             if (player) {
-              resumeAtRef.current = Math.floor(player.video.currentTime || 0);
+              const sec = Math.floor(player.video.currentTime || 0);
+              resumeAtRef.current = sec;
+              otpReloadResumeRef.current = sec;
             }
           } catch {
             resumeAtRef.current = lastReported.current;
+            otpReloadResumeRef.current = lastReported.current;
           }
         }
 
@@ -188,7 +203,16 @@ export default function VdoCipherPlayer({
   }, [ttlSeconds]);
 
   useEffect(() => {
-    const resumeAt = Math.max(0, Math.floor(initialResumeSeconds));
+    const resumeFromOtp = otpReloadResumeRef.current;
+    if (resumeFromOtp !== null) {
+      otpReloadResumeRef.current = null;
+    }
+    const resumeAt = Math.max(
+      0,
+      Math.floor(
+        resumeFromOtp !== null ? resumeFromOtp : initialResumePropRef.current,
+      ),
+    );
     resumeAtRef.current = resumeAt;
     lastReported.current = resumeAt > 0 ? Math.max(0, resumeAt - 6) : 0;
 
@@ -198,6 +222,7 @@ export default function VdoCipherPlayer({
     let cancelled = false;
     let cleanupProgress: (() => void) | undefined;
     let cleanupResume: (() => void) | undefined;
+    let initialResumePending = resumeAt > 0;
 
     const setupPlayer = async () => {
       const player = await getPlayerInstance(iframe);
@@ -208,16 +233,35 @@ export default function VdoCipherPlayer({
         player,
         resumeAtRef.current,
         (sec) => {
+          initialResumePending = false;
           lastReported.current = Math.max(0, sec - 1);
         },
       );
 
+      const reportPosition = (rawSeconds: number, immediate = false) => {
+        const sec = Math.max(0, Math.floor(rawSeconds));
+        if (initialResumePending && sec === 0) return;
+        lastReported.current = sec;
+        onProgressRef.current?.(
+          sec,
+          immediate ? { immediate: true } : undefined,
+        );
+      };
+
       const handleTimeUpdate = () => {
         const sec = Math.floor(player.video.currentTime || 0);
         if (sec - lastReported.current >= 5) {
-          lastReported.current = sec;
-          onProgressRef.current?.(sec);
+          reportPosition(sec, false);
         }
+      };
+
+      const handleSeeked = () => {
+        initialResumePending = false;
+        reportPosition(player.video.currentTime || 0, true);
+      };
+
+      const handlePause = () => {
+        reportPosition(player.video.currentTime || 0, true);
       };
 
       const handleEnded = () => {
@@ -225,10 +269,18 @@ export default function VdoCipherPlayer({
       };
 
       player.video.addEventListener("timeupdate", handleTimeUpdate);
+      player.video.addEventListener("seeked", handleSeeked);
+      player.video.addEventListener("pause", handlePause);
       player.video.addEventListener("ended", handleEnded);
 
       cleanupProgress = () => {
+        const sec = Math.floor(player.video.currentTime || 0);
+        if (!(initialResumePending && sec === 0)) {
+          reportPosition(sec, true);
+        }
         player.video.removeEventListener("timeupdate", handleTimeUpdate);
+        player.video.removeEventListener("seeked", handleSeeked);
+        player.video.removeEventListener("pause", handlePause);
         player.video.removeEventListener("ended", handleEnded);
       };
     };
@@ -248,7 +300,7 @@ export default function VdoCipherPlayer({
       cleanupResume?.();
       cleanupProgress?.();
     };
-  }, [tokens.otp, tokens.playbackInfo, initialResumeSeconds]);
+  }, [tokens.otp, tokens.playbackInfo]);
 
   const src = `https://player.vdocipher.com/v2/?otp=${encodeURIComponent(tokens.otp)}&playbackInfo=${encodeURIComponent(tokens.playbackInfo)}`;
 
@@ -261,8 +313,9 @@ export default function VdoCipherPlayer({
         ref={iframeRef}
         src={src}
         className="absolute inset-0 h-full w-full border-0"
-        allow="encrypted-media"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
         allowFullScreen
+        referrerPolicy="strict-origin-when-cross-origin"
         title="Course video"
       />
     </div>

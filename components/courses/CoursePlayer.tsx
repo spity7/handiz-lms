@@ -32,6 +32,7 @@ import {
   fetchCourseProgress,
   fetchLesson,
   getLessonResumeSeconds,
+  lessonResumeSecondsFromRow,
   refreshLessonPlaybackOtp,
   getAdjacentLessons,
   submitQuizAttempt,
@@ -149,8 +150,6 @@ export default function CoursePlayer({
   const [lessonData, setLessonData] = useState<LessonFetchResult>(null);
   const [loading, setLoading] = useState(true);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
-  const [lessonPlaybackResumeSeconds, setLessonPlaybackResumeSeconds] =
-    useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [quizError, setQuizError] = useState("");
   const [quizSubmitting, setQuizSubmitting] = useState(false);
@@ -172,19 +171,34 @@ export default function CoursePlayer({
     score: number;
   } | null>(null);
   const [navigating, setNavigating] = useState(false);
+  /** Resume seek for the player — set once per lesson load; never tied to live progress saves. */
+  const [playerInitialResumeSeconds, setPlayerInitialResumeSeconds] =
+    useState(0);
   const isFirstLessonSlugEffect = useRef(true);
   const videoPlaybackRef = useRef({ watchedSeconds: 0, lastPosition: 0 });
+  const watchedSecondsByLessonRef = useRef<Record<string, number>>({});
+  const progressSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const progressSaveRequestIdRef = useRef(0);
+  const pendingProgressRef = useRef<{
+    lessonId: string;
+    watchedSeconds: number;
+    lastPosition: number;
+  } | null>(null);
   const [resumePositionByLesson, setResumePositionByLesson] = useState<
     Record<string, number>
   >(() => {
     const map: Record<string, number> = {};
     for (const [id, entry] of Object.entries(initialProgress)) {
       if (!entry.completed && entry.lastPosition > 0) {
-        map[id] = Math.max(map[id] ?? 0, entry.lastPosition);
+        map[id] = entry.lastPosition;
       }
     }
     return map;
   });
+  const resumePositionByLessonRef = useRef(resumePositionByLesson);
+  resumePositionByLessonRef.current = resumePositionByLesson;
 
   const lessonPosition = getLessonPosition(curriculum, lessonSlug);
 
@@ -205,12 +219,16 @@ export default function CoursePlayer({
             delete next[id];
             continue;
           }
-          const pos = Math.max(
-            Number(row.lastPosition) || 0,
-            Number(row.watchedSeconds) || 0,
-          );
+          const pos = lessonResumeSecondsFromRow(row);
           if (pos > 0) {
-            next[id] = Math.max(next[id] ?? 0, pos);
+            next[id] = pos;
+          }
+          const watched = Number(row.watchedSeconds) || 0;
+          if (watched > 0) {
+            watchedSecondsByLessonRef.current[id] = Math.max(
+              watchedSecondsByLessonRef.current[id] ?? 0,
+              watched,
+            );
           }
         }
         return next;
@@ -222,14 +240,20 @@ export default function CoursePlayer({
   useEffect(() => {
     videoPlaybackRef.current = { watchedSeconds: 0, lastPosition: 0 };
     const lessonId = lessonPosition.lesson?._id;
-    const saved = lessonId ? resumePositionByLesson[lessonId] : 0;
-    if (saved > 0) {
+    if (!lessonId) return;
+
+    const saved = resumePositionByLessonRef.current[lessonId] ?? 0;
+    const watched = Math.max(
+      watchedSecondsByLessonRef.current[lessonId] ?? 0,
+      saved,
+    );
+    if (watched > 0 || saved > 0) {
       videoPlaybackRef.current = {
-        watchedSeconds: saved,
+        watchedSeconds: watched,
         lastPosition: saved,
       };
     }
-  }, [lessonSlug, lessonPosition.lesson?._id, resumePositionByLesson]);
+  }, [lessonSlug, lessonPosition.lesson?._id]);
 
   const loadLesson = useCallback(async () => {
     setLoading(true);
@@ -251,14 +275,17 @@ export default function CoursePlayer({
       return next;
     });
 
-    let resumeSeconds = 0;
     if (data && !isLessonError(data)) {
-      resumeSeconds = getLessonResumeSeconds(
+      const resumeSeconds = getLessonResumeSeconds(
         progressPayload.progress,
         data.lesson._id,
       );
+      setPlayerInitialResumeSeconds(resumeSeconds);
+      setResumePositionByLesson((prev) => ({
+        ...prev,
+        [data.lesson._id]: resumeSeconds,
+      }));
     }
-    setLessonPlaybackResumeSeconds(resumeSeconds);
 
     setLessonData(data);
     setLoading(false);
@@ -284,7 +311,7 @@ export default function CoursePlayer({
     }
     setLoading(true);
     setLessonData(null);
-    setLessonPlaybackResumeSeconds(0);
+    setPlayerInitialResumeSeconds(0);
     setQuizResult(null);
     setQuizAnswers({});
   }, [lessonSlug]);
@@ -315,15 +342,12 @@ export default function CoursePlayer({
             return next;
           });
         } else {
-          const pos = Math.max(
-            Number(lp.lastPosition) || 0,
-            Number(lp.watchedSeconds) || 0,
-          );
-          if (pos > 0) {
-            setResumePositionByLesson((prev) => ({
-              ...prev,
-              [lessonId]: Math.max(prev[lessonId] ?? 0, pos),
-            }));
+          const watched = Number(lp.watchedSeconds) || 0;
+          if (watched > 0) {
+            watchedSecondsByLessonRef.current[lessonId] = Math.max(
+              watchedSecondsByLessonRef.current[lessonId] ?? 0,
+              watched,
+            );
           }
         }
       }
@@ -331,12 +355,84 @@ export default function CoursePlayer({
     [],
   );
 
+  const flushPendingProgressSave = useCallback(
+    async (lessonId?: string) => {
+      if (progressSaveTimerRef.current) {
+        clearTimeout(progressSaveTimerRef.current);
+        progressSaveTimerRef.current = null;
+      }
+
+      const pending = pendingProgressRef.current;
+      if (!pending) return null;
+      if (lessonId && pending.lessonId !== lessonId) return null;
+
+      pendingProgressRef.current = null;
+      const requestId = ++progressSaveRequestIdRef.current;
+      const result = await updateLessonProgress(pending.lessonId, {
+        watchedSeconds: pending.watchedSeconds,
+        lastPosition: pending.lastPosition,
+      });
+      if (requestId !== progressSaveRequestIdRef.current) return result;
+      applyProgressResult(result, pending.lessonId);
+      return result;
+    },
+    [applyProgressResult],
+  );
+
+  const recordVideoProgress = useCallback(
+    (lessonId: string, seconds: number, immediate: boolean) => {
+      const watchedSeconds = Math.max(
+        watchedSecondsByLessonRef.current[lessonId] ?? 0,
+        videoPlaybackRef.current.watchedSeconds,
+        seconds,
+      );
+      watchedSecondsByLessonRef.current[lessonId] = watchedSeconds;
+      videoPlaybackRef.current = { watchedSeconds, lastPosition: seconds };
+
+      pendingProgressRef.current = {
+        lessonId,
+        watchedSeconds,
+        lastPosition: seconds,
+      };
+
+      setResumePositionByLesson((prev) => ({
+        ...prev,
+        [lessonId]: seconds,
+      }));
+
+      if (immediate) {
+        void flushPendingProgressSave();
+        return;
+      }
+
+      if (progressSaveTimerRef.current) {
+        clearTimeout(progressSaveTimerRef.current);
+      }
+      progressSaveTimerRef.current = setTimeout(() => {
+        progressSaveTimerRef.current = null;
+        void flushPendingProgressSave();
+      }, 1500);
+    },
+    [flushPendingProgressSave],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (progressSaveTimerRef.current) {
+        clearTimeout(progressSaveTimerRef.current);
+      }
+      void flushPendingProgressSave();
+    };
+  }, [flushPendingProgressSave]);
+
   const saveProgress = useCallback(
     async (markComplete = false) => {
       if (!lessonData || isLessonError(lessonData) || !lessonData.lesson)
         return null;
 
       const { lesson } = lessonData;
+      await flushPendingProgressSave(lesson._id);
+
       const payload: {
         watchedSeconds?: number;
         lastPosition?: number;
@@ -352,20 +448,20 @@ export default function CoursePlayer({
         if (watchedSeconds > 0) {
           payload.watchedSeconds = watchedSeconds;
         }
-        if (lastPosition > 0) {
-          payload.lastPosition = lastPosition;
-        }
+        payload.lastPosition = lastPosition;
       }
 
       if (!markComplete && Object.keys(payload).length === 0) {
         return null;
       }
 
+      const requestId = ++progressSaveRequestIdRef.current;
       const result = await updateLessonProgress(lesson._id, payload);
+      if (requestId !== progressSaveRequestIdRef.current) return result;
       applyProgressResult(result, lesson._id);
       return result;
     },
-    [lessonData, applyProgressResult],
+    [lessonData, applyProgressResult, flushPendingProgressSave],
   );
 
   const navigateToLesson = useCallback(
@@ -788,11 +884,7 @@ export default function CoursePlayer({
                   playbackInfo={playback.playbackInfo}
                   ttlSeconds={playback.ttlSeconds}
                   initialResumeSeconds={
-                    progressMap[lesson._id]
-                      ? 0
-                      : lessonPlaybackResumeSeconds ||
-                        resumePositionByLesson[lesson._id] ||
-                        0
+                    progressMap[lesson._id] ? 0 : playerInitialResumeSeconds
                   }
                   onRefreshPlayback={async () => {
                     const refreshed = await refreshLessonPlaybackOtp(
@@ -801,19 +893,11 @@ export default function CoursePlayer({
                     );
                     return refreshed?.playback ?? null;
                   }}
-                  onProgress={(seconds) => {
-                    videoPlaybackRef.current = {
-                      watchedSeconds: Math.max(
-                        videoPlaybackRef.current.watchedSeconds,
-                        seconds,
-                      ),
-                      lastPosition: seconds,
-                    };
-                    void updateLessonProgress(lesson._id, {
-                      watchedSeconds: seconds,
-                      lastPosition: seconds,
-                    }).then((result) =>
-                      applyProgressResult(result, lesson._id),
+                  onProgress={(seconds, meta) => {
+                    recordVideoProgress(
+                      lesson._id,
+                      seconds,
+                      Boolean(meta?.immediate),
                     );
                   }}
                   onComplete={() => saveProgress(true)}
