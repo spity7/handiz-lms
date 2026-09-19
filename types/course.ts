@@ -24,6 +24,8 @@ export type CourseInstructor = {
   username?: string;
 };
 
+export type LessonProgression = "sequential" | "open";
+
 export type Course = {
   _id: string;
   title: string;
@@ -37,6 +39,8 @@ export type Course = {
   pricing: CoursePricing;
   instructorId?: CourseInstructor;
   level?: string;
+  /** Enrolled students: sequential unlock vs all published lessons open. */
+  lessonProgression?: LessonProgression;
   tags?: string[];
   heroHighlights?: string[];
   order?: number;

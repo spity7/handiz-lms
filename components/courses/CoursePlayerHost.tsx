@@ -21,6 +21,7 @@ type CourseShell = {
   initialProgress: Record<string, { completed: boolean; lastPosition: number }>;
   initialEnrollmentProgress: number;
   isStaff?: boolean;
+  lessonProgression: "sequential" | "open";
 };
 
 const courseShellCache = new Map<string, CourseShell>();
@@ -43,6 +44,8 @@ function buildShellFromCourse(
     initialProgress,
     initialEnrollmentProgress,
     isStaff: Boolean(data.isStaff),
+    lessonProgression:
+      data.course.lessonProgression === "sequential" ? "sequential" : "open",
   };
 }
 
@@ -171,6 +174,7 @@ export default function CoursePlayerHost() {
       initialProgress={shell.initialProgress}
       initialEnrollmentProgress={shell.initialEnrollmentProgress}
       isStaff={shell.isStaff}
+      lessonProgression={shell.lessonProgression}
     />
   );
 }

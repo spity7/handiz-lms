@@ -24,7 +24,11 @@ export function getLessonPosition(
 export function getSequentiallyLockedLessonIds(
   curriculum: CourseModule[],
   progressMap: Record<string, boolean>,
+  options?: { lessonProgression?: "sequential" | "open" },
 ): Set<string> {
+  if (options?.lessonProgression !== "sequential") {
+    return new Set<string>();
+  }
   const locked = new Set<string>();
   let priorLessonsComplete = true;
 

@@ -66,6 +66,7 @@ type Props = {
   initialProgress: Record<string, { completed: boolean; lastPosition: number }>;
   initialEnrollmentProgress?: number;
   isStaff?: boolean;
+  lessonProgression?: "sequential" | "open";
 };
 
 const OPTION_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -140,6 +141,7 @@ export default function CoursePlayer({
   initialProgress,
   initialEnrollmentProgress = 0,
   isStaff = false,
+  lessonProgression = "open",
 }: Props) {
   const router = useRouter();
   const { user } = useAuthUser();
@@ -440,6 +442,7 @@ export default function CoursePlayer({
     progressMap,
     enrollmentProgress,
     isStaff: effectiveIsStaff,
+    lessonProgression,
     onLessonLinkClick: navigateToLesson,
   };
 
